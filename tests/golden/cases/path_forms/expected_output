@@ -1,0 +1,3 @@
+not_static.sh: skipped source path that cannot be read statically: /etc/profile
+not_static.sh: skipped source path that cannot be read statically: ../../../outside.sh
+not_static.sh: skipped source path that cannot be read statically: ~/.bashrc

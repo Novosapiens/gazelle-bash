@@ -5,7 +5,8 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 sh_binary(
     name = "shout",
     srcs = ["shout.sh"],
-    deps = [":strings"],
+    data = [":strings"],
+    visibility = ["//:__subpackages__"],
 )
 
 sh_library(
@@ -17,5 +18,5 @@ sh_library(
 sh_test(
     name = "strings_test",
     srcs = ["strings_test.sh"],
-    deps = [":strings"],
+    data = [":strings"],
 )

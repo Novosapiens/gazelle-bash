@@ -1,0 +1,23 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "b",
+    srcs = ["b.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "c",
+    srcs = ["c.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "user",
+    srcs = ["user.sh"],
+    data = [
+        ":b",
+        "//lib:a",
+    ],
+    visibility = ["//:__subpackages__"],
+)

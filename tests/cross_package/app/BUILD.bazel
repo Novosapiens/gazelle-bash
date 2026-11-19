@@ -3,5 +3,5 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 sh_test(
     name = "run_test",
     srcs = ["run_test.sh"],
-    deps = ["//tests/cross_package/lib:log"],
+    data = ["//tests/cross_package/lib:log"],
 )

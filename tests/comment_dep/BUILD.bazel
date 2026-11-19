@@ -3,5 +3,5 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 sh_test(
     name = "plugins_test",
     srcs = ["plugins_test.sh"],
-    deps = ["//tests/comment_dep/plugins:hello"],
+    data = ["//tests/comment_dep/plugins:hello"],
 )

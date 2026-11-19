@@ -3,9 +3,9 @@
 Started from aspect-starters/shell `.aspect/gazelle/shell.axl` (Apache-2.0), then extended:
 
   * one target per script, so Bazel can skip tests a change cannot reach;
-  * `source path` / `. path` lines become `deps`;
-  * `*.bats` files become `bats_test` targets, and their `load name` lines become `data`;
-  * `# gazelle-bash: dep <path>` declares a dependency that cannot be read statically.
+  * `source path` / `. path` lines, and bats `load name` lines, become `data`;
+  * `# gazelle-bash: dep <path>` and `# shellcheck source=<path>` declare a dependency
+    that cannot be read statically.
 
 Generation rules:
 
@@ -16,10 +16,14 @@ Generation rules:
   | `*.sh` / `*.bash` without a shebang   | `sh_library`           |
   | `*.bats`                              | `bats_test`            |
 
+Sourced files go in `data`, not `deps`: `deps` only accepts `sh_library`, but a sourced
+script often has a shebang and so is an `sh_binary`. Both put the file in the runfiles.
+
 Every script publishes its workspace-relative path as a `shell` symbol, so a captured
 path resolves to the label of whichever target owns that script, in any package.
 A literal path that matches no script fails generation. A path still containing `$`
-after normalisation is reported and skipped; use the comment convention for it.
+after normalisation is reported and skipped; declare it with a comment instead.
+Lines inside heredocs are not read.
 """
 
 _PROVIDER = "shell"
@@ -27,17 +31,17 @@ _PROVIDER = "shell"
 aspect.gazelle_rule_kind("sh_binary", {
     "From": "@rules_shell//shell:sh_binary.bzl",
     "MergeableAttrs": ["srcs"],
-    "ResolveAttrs": ["deps"],
+    "ResolveAttrs": ["data"],
 })
 aspect.gazelle_rule_kind("sh_library", {
     "From": "@rules_shell//shell:sh_library.bzl",
     "MergeableAttrs": ["srcs"],
-    "ResolveAttrs": ["deps"],
+    "ResolveAttrs": ["data"],
 })
 aspect.gazelle_rule_kind("sh_test", {
     "From": "@rules_shell//shell:sh_test.bzl",
     "MergeableAttrs": ["srcs"],
-    "ResolveAttrs": ["deps"],
+    "ResolveAttrs": ["data"],
 })
 aspect.gazelle_rule_kind("bats_test", {
     "From": "@bazel_lib//lib:bats.bzl",
@@ -45,10 +49,10 @@ aspect.gazelle_rule_kind("bats_test", {
     "ResolveAttrs": ["data"],
 })
 
-# --- Path extraction ---------------------------------------------------------
+# --- Shell words -------------------------------------------------------------
 
-def _first_word(s):
-    """Returns the first shell word of `s` with quoting removed.
+def _word(s):
+    """Reads the first shell word of `s`. Returns (word with quoting removed, chars consumed).
 
     Quotes nested inside `$(...)` / `${...}` are dropped too, so
     `"$(dirname "${BASH_SOURCE[0]}")/lib.sh"` becomes `$(dirname ${BASH_SOURCE[0]})/lib.sh`.
@@ -58,7 +62,9 @@ def _first_word(s):
     depth = 0  # nesting of $( ) and ${ }
     escaped = False
     prev = ""
-    for c in s.elems():
+    end = len(s)
+    for i in range(len(s)):
+        c = s[i]
         if escaped:
             out.append(c)
             escaped = False
@@ -85,8 +91,10 @@ def _first_word(s):
             continue
         if depth == 0 and quote == "":
             if c in " \t;&|<>)":
+                end = i
                 break
             if c == "#" and not out:
+                end = i
                 break
         if (c == "(" or c == "{") and (prev == "$" or depth > 0):
             depth += 1
@@ -94,7 +102,128 @@ def _first_word(s):
             depth -= 1
         out.append(c)
         prev = c
-    return "".join(out)
+    return "".join(out), end
+
+def _first_word(s):
+    return _word(s)[0]
+
+# --- Line scanner ------------------------------------------------------------
+
+def _heredoc_starts(line):
+    """Returns [(delimiter, strip_tabs)] for each heredoc opened on `line`.
+
+    Skips here-strings (`<<<`), shifts inside `(( ))`, single-quoted text and comments.
+    `<<` inside double quotes still counts, so `"$(cat <<EOF` is seen.
+    """
+    found = []
+    quote = ""
+    arith = 0
+    skip_to = 0
+    n = len(line)
+    for i in range(n):
+        if i < skip_to:
+            continue
+        c = line[i]
+        if quote == "'":
+            if c == "'":
+                quote = ""
+            continue
+        if c == "\\":
+            skip_to = i + 2
+            continue
+        if c == "'" and quote == "":
+            quote = "'"
+            continue
+        if c == "\"":
+            quote = "" if quote == "\"" else "\""
+            continue
+        if c == "#" and quote == "" and (i == 0 or line[i - 1] in " \t;"):
+            break
+        two = line[i:i + 2]
+        if two == "((":
+            arith += 1
+            skip_to = i + 2
+            continue
+        if two == "))" and arith > 0:
+            arith -= 1
+            skip_to = i + 2
+            continue
+        if line[i:i + 3] == "<<<":
+            skip_to = i + 3
+            continue
+        if two == "<<" and arith == 0:
+            j = i + 2
+            strip = False
+            if j < n and line[j] == "-":
+                strip = True
+                j += 1
+            rest = line[j:]
+            j += len(rest) - len(rest.lstrip(" \t"))
+            delim, used = _word(line[j:])
+            if delim:
+                found.append((delim, strip))
+            skip_to = j + max(used, 1)
+    return found
+
+def _directive(text, prefix):
+    """If `text` starts with the word `prefix`, returns the rest, stripped. Otherwise None."""
+    if text == prefix:
+        return ""
+    if text.startswith(prefix + " ") or text.startswith(prefix + "\t"):
+        return text[len(prefix):].strip()
+    return None
+
+def _scan(content):
+    """Returns [(kind, raw_arg, line_index)] for each dependency line in `content`, outside heredocs.
+
+    kind is one of "source", "load", "dep" (the gazelle-bash comment) or "shellcheck".
+    A heredoc that never closes is treated as a false match and its lines are read normally.
+    """
+    lines = content.split("\n")
+    skip = {}
+    pending = []  # open heredocs: [(delimiter, strip_tabs)]
+    body = []  # line indexes of the heredoc bodies in `pending`
+    for i in range(len(lines)):
+        line = lines[i].removesuffix("\r")
+        if pending:
+            body.append(i)
+            delim, strip = pending[0]
+            if (line.lstrip("\t") if strip else line) == delim:
+                pending.pop(0)
+                if not pending:
+                    for b in body:
+                        skip[b] = True
+                    body = []
+            continue
+        pending.extend(_heredoc_starts(line))
+
+    found = []
+    for i in range(len(lines)):
+        if i in skip:
+            continue
+        s = lines[i].strip()
+        if s.startswith("#"):
+            text = s.lstrip("#").strip()
+            gb = _directive(text, "gazelle-bash:")
+            if gb != None:
+                arg = _directive(gb, "dep")
+                if arg:
+                    found.append(("dep", arg, i))
+                continue
+            sc = _directive(text, "shellcheck")
+            if sc != None:
+                for tok in sc.split(" "):
+                    if tok.startswith("source="):
+                        found.append(("shellcheck", tok[len("source="):], i))
+            continue
+        for keyword, kind in (("source", "source"), (".", "source"), ("load", "load")):
+            arg = _directive(s, keyword)
+            if arg:
+                found.append((kind, arg, i))
+                break
+    return found
+
+# --- Paths -------------------------------------------------------------------
 
 def _dir_prefixes(dir_vars):
     """Spellings of "the directory of this script", after quote removal."""
@@ -132,19 +261,17 @@ def _clean(p):
             parts.append(seg)
     return "/".join(parts)
 
-def _normalise(word, script_dir, prefixes, allow_root = False):
+def _normalise(word, base_dir, prefixes):
     """Turns a captured path into a workspace-relative path, or None if it cannot be read statically."""
     if not word:
         return None
-    if allow_root and word.startswith("//"):
-        return _clean(word[2:])
     for prefix in prefixes:
         if word.startswith(prefix):
             word = word[len(prefix):]
             break
     if "$" in word or "`" in word or "*" in word or "?" in word or word.startswith("/") or word.startswith("~"):
         return None
-    return _clean(path.join(script_dir, word) if script_dir else word)
+    return _clean(path.join(base_dir, word) if base_dir else word)
 
 # --- Stages ------------------------------------------------------------------
 
@@ -158,19 +285,8 @@ def _prepare(_):
             "shebang": aspect.RegexQuery(
                 expression = "^#!.*sh",
             ),
-            # `source path` or `. path`, anchored to line start to avoid most strings and heredocs.
-            "source": aspect.RegexQuery(
-                expression = "(?m)^[ \\t]*(?:source|\\.)[ \\t]+(?P<arg>[^\\n]+)",
-                content_filter = "(?m)^[ \\t]*(?:source|\\.)[ \\t]",
-            ),
-            "load": aspect.RegexQuery(
-                filter = "*.bats",
-                expression = "(?m)^[ \\t]*load[ \\t]+(?P<arg>[^\\n]+)",
-            ),
-            "comment_dep": aspect.RegexQuery(
-                expression = "(?m)^[ \\t]*#[ \\t]*gazelle-bash:[ \\t]*dep[ \\t]+(?P<arg>[^\\n]+)",
-                content_filter = "gazelle-bash:",
-            ),
+            # Whole file: dependency lines are read by `_scan`, which can skip heredocs.
+            "content": aspect.RawQuery(),
         },
     )
 
@@ -192,34 +308,50 @@ def _target_names(sources):
 def _imports(ctx, file, prefixes):
     """Collects `aspect.Import`s for every statically readable dependency of `file`."""
     script_dir = path.join(ctx.rel, path.dirname(file.path)) if ctx.rel else path.dirname(file.path)
+    shellcheck_base = script_dir if ctx.properties["bash_shellcheck_relative_to"] == "script" else ""
     is_bats = file.path.endswith(".bats")
     seen = {}
     imports = []
 
-    def add(id, kind, raw):
-        if id == None:
-            print("gazelle-bash: %s: skipped dynamic %s path: %s" % (path.join(ctx.rel, file.path), kind, raw.strip()))
-            return
-        if id in seen:
-            return
-        seen[id] = True
-        imports.append(aspect.Import(id = id, provider = _PROVIDER, src = file.path))
-
-    for m in file.query_results["source"]:
-        raw = m.captures["arg"]
-        add(_normalise(_first_word(raw), script_dir, prefixes), "source", raw)
-
-    if is_bats:
-        for m in file.query_results["load"]:
-            raw = m.captures["arg"]
-            word = _first_word(raw)
+    # Lines declared by a comment directly above; a dynamic `source` there is expected.
+    covered = {}
+    for kind, raw, line in _scan(file.query_results["content"]):
+        if kind == "dep" or kind == "shellcheck":
+            covered[line + 1] = True
+            continue
+    for kind, raw, line in _scan(file.query_results["content"]):
+        word = _first_word(raw)
+        if kind == "load":
+            if not is_bats:
+                continue
             if word and not (word.endswith(".bash") or word.endswith(".sh")):
                 word += ".bash"
-            add(_normalise(word, script_dir, prefixes), "load", raw)
+            id = _normalise(word, script_dir, prefixes)
+        elif kind == "dep" and word.startswith("//"):
+            id = _clean(word[2:])
+        elif kind == "shellcheck":
+            if word == "/dev/null":
+                continue
+            if word.startswith("SCRIPTDIR/"):
+                id = _normalise(word.removeprefix("SCRIPTDIR/"), script_dir, prefixes)
+            else:
+                id = _normalise(word, shellcheck_base, prefixes)
+        else:
+            id = _normalise(word, script_dir, prefixes)
 
-    for m in file.query_results["comment_dep"]:
-        raw = m.captures["arg"]
-        add(_normalise(_first_word(raw), script_dir, prefixes, allow_root = True), "comment", raw)
+        if id == None:
+            if line in covered:
+                continue
+            print("gazelle-bash: %s: skipped %s path that cannot be read statically: %s" % (
+                path.join(ctx.rel, file.path),
+                kind,
+                raw.strip(),
+            ))
+            continue
+        if id in seen:
+            continue
+        seen[id] = True
+        imports.append(aspect.Import(id = id, provider = _PROVIDER, src = file.path))
 
     return imports
 
@@ -242,9 +374,9 @@ def _declare(ctx):
 
         attrs = {
             "srcs": [file.path],
-            "deps": _imports(ctx, file, prefixes),
+            "data": _imports(ctx, file, prefixes),
         }
-        if kind == "sh_library":
+        if kind != "sh_test":
             attrs["visibility"] = ["//:__subpackages__"]
 
         ctx.targets.add(
@@ -273,6 +405,9 @@ aspect.orion_extension(
         # Extra variable names that hold "the directory of this script", eg
         #   # gazelle:bash_dir_vars SCRIPT_DIR,HERE
         "bash_dir_vars": aspect.Property(type = "[]string", default = ["SCRIPT_DIR"]),
+        # What a `# shellcheck source=path` is relative to: "workspace" (ShellCheck run from
+        # the repo root, its default) or "script". `source=SCRIPTDIR/...` is always the script's.
+        "bash_shellcheck_relative_to": aspect.Property(type = "string", default = "workspace"),
     },
     prepare = _prepare,
     declare = _declare,

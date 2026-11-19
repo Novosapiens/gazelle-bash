@@ -1,0 +1,21 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "fake",
+    srcs = ["fake.sh"],
+    data = [":lib"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "gen",
+    srcs = ["gen.sh"],
+    data = [":lib"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "lib",
+    srcs = ["lib.sh"],
+    visibility = ["//:__subpackages__"],
+)

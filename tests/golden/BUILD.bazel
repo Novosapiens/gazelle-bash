@@ -1,0 +1,13 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Hand-written: //:gazelle excludes this directory, since some cases are meant to fail generation.
+sh_test(
+    name = "golden_test",
+    size = "small",
+    srcs = ["golden_test.sh"],
+    data = [
+        "//:gazelle",
+        "//:shell.axl",
+    ] + glob(["cases/**"]),
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)

@@ -1,0 +1,1 @@
+source './sub/../lib.sh'

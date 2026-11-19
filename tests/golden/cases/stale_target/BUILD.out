@@ -1,0 +1,12 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "deleted",
+    srcs = ["deleted.sh"],
+)
+
+sh_library(
+    name = "kept",
+    srcs = ["kept.sh"],
+    visibility = ["//:__subpackages__"],
+)

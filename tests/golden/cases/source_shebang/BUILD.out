@@ -1,0 +1,15 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_binary(
+    name = "common",
+    srcs = ["common.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "user",
+    srcs = ["user.sh"],
+    data = [":common"],
+    visibility = ["//:__subpackages__"],
+)

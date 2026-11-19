@@ -1,0 +1,94 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "braced_var",
+    srcs = ["braced_var.sh"],
+    data = [":lib"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "comment_root",
+    srcs = ["comment_root.sh"],
+    data = ["//other:o"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "dirname_dashdash",
+    srcs = ["dirname_dashdash.sh"],
+    data = [":lib"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "dot",
+    srcs = ["dot.sh"],
+    data = [":lib"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "h2",
+    srcs = ["h2.bash"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "inline_missed",
+    srcs = ["inline_missed.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "lib",
+    srcs = ["lib.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "not_static",
+    srcs = ["not_static.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "operators",
+    srcs = ["operators.sh"],
+    data = [
+        ":lib",
+        "//other:o",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "single_quotes",
+    srcs = ["single_quotes.sh"],
+    data = [":lib"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_binary(
+    name = "tool_sh",
+    srcs = ["tool.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "trailing_comment",
+    srcs = ["trailing_comment.sh"],
+    data = [":lib"],
+    visibility = ["//:__subpackages__"],
+)
+
+bats_test(
+    name = "tool_bats",
+    srcs = ["tool.bats"],
+    data = [
+        ":h2",
+        "//sub:helper",
+    ],
+)
