@@ -1,0 +1,14 @@
+"""Gazelle extension (Aspect Orion) that generates BUILD targets for Bash scripts and bats tests."""
+
+module(
+    name = "gazelle_bash",
+    version = "0.1.0",
+)
+
+# Prebuilt Gazelle with Orion; runs shell.axl with no Go toolchain.
+# Pinned deliberately: Orion's API is still moving. Bump on purpose.
+bazel_dep(name = "aspect_gazelle_prebuilt", version = "0.0.29")
+
+# Rules the generated targets use. Host repos need these too.
+bazel_dep(name = "rules_shell", version = "0.10.0")
+bazel_dep(name = "bazel_lib", version = "3.8.0")

@@ -1,0 +1,16 @@
+load("@aspect_gazelle_prebuilt//:def.bzl", "aspect_gazelle")
+
+exports_files(
+    ["shell.axl"],
+    visibility = ["//visibility:public"],
+)
+
+# Regenerates the BUILD files under tests/ from the fixtures.
+#   bazel run //:gazelle        - update BUILD files
+#   bazel run //:gazelle.check  - fail if any BUILD file is stale (CI)
+aspect_gazelle(
+    name = "gazelle",
+    extensions = [":shell.axl"],
+    languages = [],
+    with_check = True,
+)

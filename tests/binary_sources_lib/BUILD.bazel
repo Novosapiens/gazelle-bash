@@ -1,0 +1,21 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+sh_binary(
+    name = "shout",
+    srcs = ["shout.sh"],
+    deps = [":strings"],
+)
+
+sh_library(
+    name = "strings",
+    srcs = ["strings.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_test(
+    name = "strings_test",
+    srcs = ["strings_test.sh"],
+    deps = [":strings"],
+)
