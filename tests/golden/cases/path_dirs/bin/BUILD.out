@@ -31,8 +31,20 @@ sh_library(
 )
 
 sh_library(
+    name = "in-function_bin",
+    srcs = ["in-function"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
     name = "negated_bin",
     srcs = ["negated"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "one-liner_bin",
+    srcs = ["one-liner"],
     visibility = ["//:__subpackages__"],
 )
 

@@ -17,3 +17,12 @@ bats_test(
         "//tools:shared_bin",
     ],
 )
+
+bats_test(
+    name = "oneline",
+    srcs = ["oneline.bats"],
+    data = [
+        "//bin:in-function_bin",
+        "//bin:one-liner_bin",
+    ],
+)

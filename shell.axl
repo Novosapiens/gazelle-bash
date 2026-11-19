@@ -448,7 +448,7 @@ _NAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+
 # Words after which the next word is still in command position.
 _COMMAND_PREFIXES = {w: True for w in [
     "run", "bats_pipe", "if", "then", "else", "elif", "do", "while", "until", "time",
-    "exec", "command", "env", "nohup", "sudo", "{",
+    "exec", "command", "env", "nohup", "sudo",
 ]}
 
 # Bash runs these itself, before looking on PATH, so a file of the same name is never used.
@@ -471,7 +471,8 @@ def _commands(content):
     """Returns the bare words in command position in `content`, each once, in order.
 
     Command position is the start of a line, or after `|`, `&`, `;`, `(`, `)`, a backtick, `!`,
-    an assignment, or one of `_COMMAND_PREFIXES` (and, after `run`, its options). Bash
+    a `{` standing alone, an assignment, or one of `_COMMAND_PREFIXES` (and, after `run`,
+    its options). Bash
     builtins and keywords are left out. Full-line comments are not read; heredocs and
     strings are.
     """
@@ -492,7 +493,11 @@ def _commands(content):
             if start >= 0:
                 word = line[start:i]
                 start = -1
-                if expect:
+                if word == "{":
+                    # A block opens: `@test "x" { tool; }`, `name() { tool; }`.
+                    expect = True
+                    after_run = False
+                elif expect:
                     if word in _COMMAND_PREFIXES:
                         after_run = word == "run"
                     elif _is_assignment(word) or (after_run and word.startswith("-")):
