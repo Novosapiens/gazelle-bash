@@ -53,7 +53,7 @@ bazel run //:gazelle.check || { echo "BUILD files are stale. Run: bazel run //:g
 
 ## What it generates
 
-One target per file:
+One target per file, by default (see "One target per directory" for the other mode):
 
 | Input | Output |
 | --- | --- |
@@ -79,6 +79,64 @@ Target names:
   have the same label as its source file.
 - A data file's name has `.` and `/` replaced by `_` (`GUIDE.md` is `GUIDE_md`). A name without either
   gets a `_file` suffix (`NOTICE_file`).
+
+### One target per directory
+
+One target per file is the default, because Bazel can then skip every test a change cannot reach. The
+cost is a BUILD file that grows one rule block per script. Gazelle adds each new block at the end of the
+file, so two branches that each add a script to the same directory both edit the same place and conflict
+when merged.
+
+To get one target per directory instead, as Go's `go_library` and rules_python's
+`python_generation_mode package` do, set:
+
+```starlark
+# gazelle:bash_generation_mode package
+```
+
+In that package and the packages below it:
+
+| Input | Output |
+| --- | --- |
+| Every library and command in the directory | One `sh_library`, named after the directory, with the files in a sorted `srcs` |
+| Every file matching `bash_data_files` | One `filegroup`, named `<directory>_files` |
+| Each `*_test.sh` and `*.bats` | One test target each, as before |
+
+```starlark
+sh_library(
+    name = "lib",                   # //tools/lib
+    srcs = ["log.sh", "strings.sh", "tool"],
+    data = ["//:root", "//tools/lib/plugins"],
+)
+
+bats_test(
+    name = "lib_bats",              # lib.bats; renamed so it doesn't clash with the library
+    srcs = ["lib.bats"],
+    data = [":lib"],
+)
+```
+
+- Adding a library then adds one line to `srcs` instead of a new block. Two branches conflict only when
+  their file names sort next to each other.
+- The library's `data` is everything any of its files sources, runs and reads. A file in the same target
+  isn't listed.
+- At the workspace root, which has no directory name, the library is named `root` (`root_files` for the
+  filegroup).
+- A test whose name would clash with the library or the filegroup folds its extension in: `lib.bats` is
+  `lib_bats` and `lib_test.sh` stays `lib_test`.
+- Set `# gazelle:bash_generation_mode file` in a subpackage to switch back for that subtree.
+
+The trade-offs:
+
+- **Tests rerun more often.** A change to any file in the directory reruns every test that depends on
+  its target, and a test gets the files its target's siblings need as well as the ones it uses.
+- **Directories that hold mostly tests barely change.** Tests keep one target each, so adding one still
+  adds a block. Folding tests together would make Bazel rerun all of them on every change.
+- **Coarser targets can form a cycle.** If `a/x.sh` sources `b/y.sh` and `b/z.sh` sources `a/w.sh`, the
+  files don't form a cycle but the two directory targets do, and Bazel rejects it. Move a file or put
+  `# gazelle-bash: ignore` on one direction.
+- **Switching an existing directory keeps its old per-file targets.** See Limits. Delete them by hand
+  after the first run.
 
 ## Dependencies
 
@@ -242,6 +300,7 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 | `# gazelle:bash_path_dirs plugin/bin,tests/helpers` | none | Directories that tests put on `PATH`. A test depends on the commands it runs by bare name from them |
 | `# gazelle:bash_data_files docs/**,*.md` | none | Non-script files tests may depend on, as globs from the workspace root. Each match gets a filegroup |
 | `# gazelle:bash_shellcheck_relative_to script` | `workspace` | What a `shellcheck source=` path is relative to |
+| `# gazelle:bash_generation_mode package` | `file` | `file`: one target per script. `package`: one library and one filegroup per directory, one target per test. See "One target per directory" |
 | `# gazelle:gazelle_bash disabled` | enabled | Turn the extension off for a subtree |
 
 ## Limits
@@ -249,6 +308,8 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 - **Deleting or renaming a script leaves its old target behind.** `bazel build` then fails on the missing
   file. Delete the target by hand. Orion only removes targets an extension names, and it doesn't show
   extensions the existing BUILD file. The golden case `stale_target` pins this until Orion supports it.
+  For the same reason, switching a directory to `bash_generation_mode package` keeps its per-file targets
+  next to the new one (golden case `generation_mode_switch`).
 - **Commands on `PATH`** (`git`, `jq`, `gh`) are not tracked. Tests use whatever the machine has.
 - **Only lines that start with `source`, `.` or `load` are read.** A `source` after `then`, `&&` or `;` on
   the same line is missed. Use a comment for those.
@@ -293,6 +354,7 @@ the declared dependencies are complete, because an undeclared file is not in the
 | `shebang_lib` | Sourcing a script with a shebang works, through two levels of sourcing |
 | `path_commands` | A bats test runs a command by bare name, with `bin/` put on `PATH` by a helper, and gets the command and the library it sources |
 | `shared_settings` | `map_kind` sends bats tests through a macro that supplies an env value, in the package and below it |
+| `package_mode` | With `bash_generation_mode package`, one library target holds a script and the sibling it sources, and tests inside and outside the package pass with only that target |
 
 **Golden cases** (`tests/golden/cases/*`) are small workspaces that the real prebuilt Gazelle runs on.
 They cover what a live fixture can't: generation errors, BUILD files that exist beforehand, and inputs
@@ -324,6 +386,10 @@ that would break the repo's own generation. Each case can hold:
 | `ignore` | `# gazelle-bash: ignore` above a line or at its end, for `source`, `.` and `load` |
 | `path_lookup` | `source name` with no slash: a dependency when the file is next to the script, skipped with a message when it isn't |
 | `sourced_data_file` | A sourced non-script file resolves once `bash_data_files` names it |
+| `generation_mode` | `bash_generation_mode package`: one library and one filegroup per directory; no self-dependency from a sibling `source` or a `dep ./`; a test named after its directory; `root` at the workspace root; inherited by a subpackage; `file` in a subpackage restores per-file targets |
+| `generation_mode_add` | In `package` mode, a new file adds one line to the existing target's `srcs`, and hand-added attributes survive |
+| `generation_mode_switch` | Known limit: switching a directory to `package` mode keeps its per-file targets |
+| `generation_mode_invalid` | An unknown `bash_generation_mode` value fails generation with a clear error |
 
 ```sh
 bazel run //tests/golden:golden_test -- --update      # rewrite BUILD.out files from actual output
