@@ -5,6 +5,8 @@
 #   cases/<case>/**/BUILD.out    the BUILD.bazel expected after running gazelle
 #   cases/<case>/expected_exit_code   optional, default 0
 #   cases/<case>/expected_output      optional, each line must appear in gazelle's output
+#   cases/<case>/make_symlinks        optional, lines of "<link> <target>": symlinks to create in
+#                                     the copy (git and Bazel runfiles don't keep them as links)
 #
 # The case is copied to a temp dir, BUILD.in files become BUILD.bazel, and the real prebuilt
 # gazelle runs on it with shell.axl. Every BUILD.bazel produced must match a BUILD.out.
@@ -55,7 +57,12 @@ for name in "${only[@]}"; do
     mkdir -p "$ws"
     cp -RL "$case_dir/." "$ws/"
     chmod -R u+w "$ws"
-    find "$ws" \( -name BUILD.out -o -name expected_exit_code -o -name expected_output \) -delete
+    find "$ws" \( -name BUILD.out -o -name expected_exit_code -o -name expected_output -o -name make_symlinks \) -delete
+    if [[ -f "$case_dir/make_symlinks" ]]; then
+        while read -r link target; do
+            [[ -n "$link" ]] && ln -s "$target" "$ws/$link"
+        done < "$case_dir/make_symlinks"
+    fi
     find "$ws" -name BUILD.in | while read -r f; do mv "$f" "$(dirname "$f")/BUILD.bazel"; done
     : > "$ws/MODULE.bazel"
     cp "$axl" "$ws/shell.axl"

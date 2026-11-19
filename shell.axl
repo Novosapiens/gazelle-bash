@@ -483,16 +483,21 @@ def _glob_match(pattern, p):
 
 # --- Stages ------------------------------------------------------------------
 
+# The convenience symlinks Bazel creates at the workspace root.
+_BAZEL_LINKS = ["bazel-*"]
+
 def _prepare(ctx):
     sources = {
         "scripts": aspect.SourceExtensions(".bash", ".sh"),
         "bats": aspect.SourceExtensions(".bats"),
         # Files with no extension; only those whose first line is a sh/bash shebang get a target.
-        "bare": aspect.SourceGlobs("**", exclude = ["**/*.*"]),
+        # Bazel's own `bazel-bin`, `bazel-out`, ... links point at directories, and Orion
+        # stops when asked to read one.
+        "bare": aspect.SourceGlobs("**", exclude = ["**/*.*"] + _BAZEL_LINKS),
     }
     if _list(ctx.properties["bash_data_files"]):
         # Candidates for a per-file filegroup; `_declare` keeps those the setting names.
-        sources["data"] = aspect.SourceGlobs("**", exclude = ["**/BUILD", "**/BUILD.bazel"])
+        sources["data"] = aspect.SourceGlobs("**", exclude = ["**/BUILD", "**/BUILD.bazel"] + _BAZEL_LINKS)
     return aspect.PrepareResult(
         sources = sources,
         queries = {

@@ -1,0 +1,4 @@
+bazel-bin out_dir
+bazel-out out_dir
+bazel-testlogs out_dir
+bazel-myrepo out_dir

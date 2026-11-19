@@ -17,11 +17,11 @@ bazel_dep(name = "aspect_gazelle_prebuilt", version = "0.0.29")
 bazel_dep(name = "rules_shell", version = "0.10.0")
 bazel_dep(name = "bazel_lib", version = "3.8.0")
 
-bazel_dep(name = "gazelle_bash", version = "0.1.0")
+bazel_dep(name = "gazelle_bash", version = "0.1.1")
 git_override(  # until gazelle_bash is on the Bazel Central Registry
     module_name = "gazelle_bash",
     remote = "https://github.com/Novosapiens/gazelle-bash.git",
-    tag = "v0.1.0",
+    tag = "v0.1.1",
 )
 ```
 
@@ -197,7 +197,8 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 - **Two scripts that source each other make a dependency cycle**, which Bazel rejects. Put
   `# gazelle-bash: ignore` on one direction. The other direction still brings both files to a test.
 - **A symlink that points at a directory stops generation** with "is a directory". This is Orion reading
-  the link as a file. Exclude it with `# gazelle:exclude path/to/link`.
+  the link as a file. Exclude it with `# gazelle:exclude path/to/link`. Bazel's own `bazel-*` links at the
+  workspace root are already skipped.
 - **Scripts that find their own directory with `realpath` or `readlink` fail under Bazel.** Tests run in a
   runfiles tree of symlinks, so the real path points outside the sandbox. Sourcing relative to
   `BASH_SOURCE` or `$0` works.
@@ -241,6 +242,7 @@ that would break the repo's own generation. Each case can hold:
 - `BUILD.out`: the expected result
 - `expected_exit_code`
 - `expected_output`: lines that must appear in Gazelle's output
+- `make_symlinks`: symlinks to create in the copy, as `<link> <target>` lines
 
 | Case | Pins |
 | --- | --- |
@@ -255,6 +257,7 @@ that would break the repo's own generation. Each case can hold:
 | `stale_target` | Known limit: a target for a deleted file is kept |
 | `data_refs` | References in tests: files, directories, wildcards, comments, escapes, paths made at run time; `bash_data_files` filegroups; a hand-written filegroup survives; the glob forms of the comment |
 | `disabled` | `# gazelle:gazelle_bash disabled` turns it off for a subtree only |
+| `bazel_symlinks` | Bazel's `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<name>` links don't stop generation |
 | `multiline_string` | Lines inside multi-line `"…"`, `'…'` and `$'…'` strings are not read; an apostrophe in a comment is not a quote; when the tracker loses count, every line is read |
 | `ignore` | `# gazelle-bash: ignore` above a line or at its end, for `source`, `.` and `load` |
 | `path_lookup` | `source name` with no slash: a dependency when the file is next to the script, skipped with a message when it isn't |
