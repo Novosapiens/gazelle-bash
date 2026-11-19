@@ -1,0 +1,20 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+load("//tests:defs.bzl", "my_bats_test", "my_sh_test")
+
+my_bats_test(
+    name = "a",
+    srcs = ["a.bats"],
+    data = ["//lib:helper"],
+    tags = ["manual"],
+)
+
+my_sh_test(
+    name = "c_test",
+    srcs = ["c_test.sh"],
+)
+
+sh_library(
+    name = "lib",
+    srcs = ["lib.sh"],
+    visibility = ["//:__subpackages__"],
+)

@@ -1,0 +1,19 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+bats_test(
+    name = "cmds",
+    srcs = ["cmds.bats"],
+    data = [
+        "//bin:assigned_bin",
+        "//bin:negated_bin",
+        "//bin:other-tool_bin",
+        "//bin:piped_bin",
+        "//bin:prefixed_bin",
+        "//bin:shared_bin",
+        "//bin:subst_bin",
+        "//bin:tool_bin",
+        "//bin:with-ext",
+        "//tools:second-dir_bin",
+        "//tools:shared_bin",
+    ],
+)

@@ -1,0 +1,9 @@
+load("//tests/shared_settings:defs.bzl", "env_bats_test")
+
+# Every bats test here and below is generated as the macro in defs.bzl.
+# gazelle:map_kind bats_test env_bats_test //tests/shared_settings:defs.bzl
+
+env_bats_test(
+    name = "env",
+    srcs = ["env.bats"],
+)

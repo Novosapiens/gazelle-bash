@@ -441,6 +441,73 @@ def _refs(content, roots):
                     found.append((line[at:end], i))
     return found
 
+# --- Commands run by name ----------------------------------------------------
+
+_NAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-"
+
+# Words after which the next word is still in command position.
+_COMMAND_PREFIXES = {w: True for w in [
+    "run", "bats_pipe", "if", "then", "else", "elif", "do", "while", "until", "time",
+    "exec", "command", "env", "nohup", "sudo", "{",
+]}
+
+# Bash runs these itself, before looking on PATH, so a file of the same name is never used.
+_BUILTINS = {w: True for w in [
+    "fi", "for", "done", "case", "esac", "in", "function", "select", "[", "[[", "]]", "}",
+    ".", ":", "alias", "bg", "bind", "break", "builtin", "caller", "cd", "compgen", "complete",
+    "compopt", "continue", "declare", "dirs", "disown", "echo", "enable", "eval", "exit",
+    "export", "false", "fc", "fg", "getopts", "hash", "help", "history", "jobs", "kill", "let",
+    "local", "logout", "mapfile", "popd", "printf", "pushd", "pwd", "read", "readarray",
+    "readonly", "return", "set", "shift", "shopt", "source", "suspend", "test", "times", "trap",
+    "true", "type", "typeset", "ulimit", "umask", "unalias", "unset", "wait",
+]}
+
+def _is_assignment(word):
+    """True for `NAME=value`, which may come before a command."""
+    name, sep, _ = word.partition("=")
+    return bool(sep) and bool(name) and all([c in _NAME_CHARS and c not in ".+-" for c in name.elems()])
+
+def _commands(content):
+    """Returns the bare words in command position in `content`, each once, in order.
+
+    Command position is the start of a line, or after `|`, `&`, `;`, `(`, `)`, a backtick, `!`,
+    an assignment, or one of `_COMMAND_PREFIXES` (and, after `run`, its options). Bash
+    builtins and keywords are left out. Full-line comments are not read; heredocs and
+    strings are.
+    """
+    found = {}
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        expect = True  # the next word is in command position
+        after_run = False
+        start = -1  # where the current word began
+        for i in range(len(line) + 1):
+            c = line[i] if i < len(line) else " "
+            if c not in " \t|&;()`!":
+                if start < 0:
+                    start = i
+                continue
+            if start >= 0:
+                word = line[start:i]
+                start = -1
+                if expect:
+                    if word in _COMMAND_PREFIXES:
+                        after_run = word == "run"
+                    elif _is_assignment(word) or (after_run and word.startswith("-")):
+                        pass
+                    else:
+                        expect = False
+                        after_run = False
+                        if (word not in _BUILTINS and word[0] not in "-." and
+                            all([ch in _NAME_CHARS for ch in word.elems()])):
+                            found[word] = True
+            if c not in " \t":
+                expect = True
+                after_run = after_run and c == "!"
+    return found.keys()
+
 # --- Globs -------------------------------------------------------------------
 
 def _segment_match(pattern, s):
@@ -556,7 +623,7 @@ def _symbols(ws_path, tree = True):
         parent = parent.rpartition("/")[0]
     return symbols
 
-def _imports(ctx, file, prefixes, roots, is_test):
+def _imports(ctx, file, prefixes, roots, path_dirs, is_test):
     """Collects `aspect.Import`s for every statically readable dependency of `file`."""
     file_path = _join(ctx.rel, file.path)
     script_dir = file_path.rpartition("/")[0]
@@ -634,6 +701,13 @@ def _imports(ctx, file, prefixes, roots, is_test):
             if not resolved[1]:
                 add((resolved[0], True), optional = True)  # the path may be a directory
 
+    # A test also depends on each command it runs by bare name, when a `bash_path_dirs`
+    # directory holds a file of that name. Optional: most such words are system commands.
+    if is_test and path_dirs:
+        for word in _commands(content):
+            for d in path_dirs:
+                add((_join(d, word), False), optional = True)
+
     return imports
 
 def _data_name(p):
@@ -662,6 +736,12 @@ def _declare(ctx):
 
     prefixes = _dir_prefixes(ctx.properties["bash_dir_vars"])
     roots = _root_vars(ctx.properties["bash_root_vars"])
+    path_dirs = []
+    for d in _list(ctx.properties["bash_path_dirs"]):
+        cleaned = _clean(d)
+        if cleaned == None:
+            fail("gazelle-bash: bash_path_dirs entry must be a directory inside the workspace, got: " + d)
+        path_dirs.append(cleaned)
     names = _target_names(scripts + bats)
 
     used = {name: p for p, name in names.items()}
@@ -690,7 +770,7 @@ def _declare(ctx):
 
         attrs = {
             "srcs": [file.path],
-            "data": _imports(ctx, file, prefixes, roots, kind == "sh_test"),
+            "data": _imports(ctx, file, prefixes, roots, path_dirs, kind == "sh_test"),
         }
         if kind != "sh_test":
             attrs["visibility"] = ["//:__subpackages__"]
@@ -708,7 +788,7 @@ def _declare(ctx):
             kind = "bats_test",
             attrs = {
                 "srcs": [file.path],
-                "data": _imports(ctx, file, prefixes, roots, True),
+                "data": _imports(ctx, file, prefixes, roots, path_dirs, True),
             },
         )
 
@@ -722,6 +802,10 @@ aspect.orion_extension(
         # root (`.` for the root itself), eg
         #   # gazelle:bash_root_vars APP_ROOT=plugin,REPO=.
         "bash_root_vars": aspect.Property(type = "[]string", default = []),
+        # Directories that tests put on PATH, from the workspace root. A test that runs a
+        # command by bare name depends on the file of that name in one of them, eg
+        #   # gazelle:bash_path_dirs plugin/bin,tests/helpers
+        "bash_path_dirs": aspect.Property(type = "[]string", default = []),
         # Non-script files that tests may depend on, as globs from the workspace root. Each
         # match gets a filegroup of its own, eg
         #   # gazelle:bash_data_files docs/**,*.md,tests/fixtures/**

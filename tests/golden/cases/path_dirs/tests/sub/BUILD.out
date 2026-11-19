@@ -1,0 +1,11 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+sh_test(
+    name = "plain_test",
+    srcs = ["plain_test.sh"],
+    data = [
+        "//bin:other-tool_bin",
+        "//bin:subst_bin",
+        "//bin:tool_bin",
+    ],
+)

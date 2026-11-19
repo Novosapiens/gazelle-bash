@@ -90,6 +90,7 @@ attribute `bats_test` has.
 | `source path` or `. path` at the start of a line | `data` |
 | bats `load name` | `data`, pointing at `name.bash` |
 | In a test, any `$VAR/path` whose `VAR` is in `bash_root_vars` | `data` |
+| In a test, a command run by bare name that is a file in a `bash_path_dirs` directory | `data` |
 | `# gazelle-bash: dep path` | `data` |
 | `# shellcheck source=path` | `data` |
 
@@ -171,8 +172,64 @@ A reference with a `$` later in the path is printed as skipped, like a `source` 
 Only tests have their references read. In a library or command, a mention of another command would often
 make a dependency cycle, so declare those with a comment.
 
+### Commands a test runs by name
+
+Tests often put a `bin/` directory on `PATH` and run its commands by bare name. Tell the extension which
+directories those are:
+
+```starlark
+# gazelle:bash_path_dirs plugin/bin,tests/helpers
+```
+
+Then in every `.bats` and `*_test.sh` file, a word in command position that names a file in one of those
+directories becomes a dependency on that file's target:
+
+```bash
+run gh-board issues       # after `run`, also `run -0 …` and `run ! …`
+gh-board | grep open      # at the start of a line, and after | && || ; !
+count="$(gh-board count)" # inside $( ) and backticks
+DEBUG=1 gh-board          # after assignments, and after if, then, do, exec, command, env, …
+```
+
+- A word that matches no file is dropped without a message. Most are system commands such as `git`.
+- Bash builtins and keywords (`echo`, `test`, `cd`, …) are never matched, because Bash runs its own.
+- If two listed directories hold the same name, the test depends on both files. The extension can't see
+  which one `PATH` would pick.
+- A command named only inside a quoted string, such as `bash -c "gh-board x"`, is not seen. Declare it
+  with a comment.
+- A word that isn't really a command, such as a `case` label, can add a dependency the test doesn't need.
+  That costs an extra test run, never a wrong build.
+
 A file can only be depended on if it has a target: a script, or a file that matches `bash_data_files`. Each
 directory holding such files gets a BUILD file.
+
+## Shared settings for tests
+
+To give every test the same extra settings, such as an `env` value, a tool in `data` or a `size`, write a
+macro and map the generated kind to it with Gazelle's own `map_kind` directive:
+
+```starlark
+# gazelle:map_kind bats_test my_bats_test //tests:defs.bzl
+# gazelle:map_kind sh_test my_sh_test //tests:defs.bzl
+```
+
+```starlark
+# tests/defs.bzl
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+def my_bats_test(name, data = [], env = {}, **kwargs):
+    bats_test(
+        name = name,
+        data = data + ["@jq"],
+        env = dict(env, JQ = "$(rlocationpath @jq)"),
+        **kwargs
+    )
+```
+
+The directive applies to its own package and every package below it. The macro must accept what the
+extension writes: `name`, `srcs` and `data`. Attributes added by hand to one target, such as
+`tags = ["manual"]`, survive regeneration. A hand-added entry in `data` does not, unless its line ends
+with `# keep`; put shared entries in the macro instead.
 
 ## Settings
 
@@ -182,6 +239,7 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 | --- | --- | --- |
 | `# gazelle:bash_dir_vars SCRIPT_DIR,HERE` | `SCRIPT_DIR` | Variable names that hold "this script's directory" |
 | `# gazelle:bash_root_vars APP_ROOT=plugin,REPO=.` | none | Variables that hold a fixed directory, as `NAME=path` from the workspace root (`.` is the root) |
+| `# gazelle:bash_path_dirs plugin/bin,tests/helpers` | none | Directories that tests put on `PATH`. A test depends on the commands it runs by bare name from them |
 | `# gazelle:bash_data_files docs/**,*.md` | none | Non-script files tests may depend on, as globs from the workspace root. Each match gets a filegroup |
 | `# gazelle:bash_shellcheck_relative_to script` | `workspace` | What a `shellcheck source=` path is relative to |
 | `# gazelle:gazelle_bash disabled` | enabled | Turn the extension off for a subtree |
@@ -233,6 +291,8 @@ the declared dependencies are complete, because an undeclared file is not in the
 | `comment_dep` | The comment adds a dependency the parser cannot see |
 | `extensionless` | A command with no file extension gets a target a test can depend on |
 | `shebang_lib` | Sourcing a script with a shebang works, through two levels of sourcing |
+| `path_commands` | A bats test runs a command by bare name, with `bin/` put on `PATH` by a helper, and gets the command and the library it sources |
+| `shared_settings` | `map_kind` sends bats tests through a macro that supplies an env value, in the package and below it |
 
 **Golden cases** (`tests/golden/cases/*`) are small workspaces that the real prebuilt Gazelle runs on.
 They cover what a live fixture can't: generation errors, BUILD files that exist beforehand, and inputs
@@ -257,6 +317,8 @@ that would break the repo's own generation. Each case can hold:
 | `stale_target` | Known limit: a target for a deleted file is kept |
 | `data_refs` | References in tests: files, directories, wildcards, comments, escapes, paths made at run time; `bash_data_files` filegroups; a hand-written filegroup survives; the glob forms of the comment |
 | `disabled` | `# gazelle:gazelle_bash disabled` turns it off for a subtree only |
+| `path_dirs` | Commands run by bare name: after `run` and its options, `\|`, `&&`, `;`, `!`, `$( )`, assignments and `if`; a `.sh` command; two directories; not builtins, arguments, comments, system commands or libraries |
+| `map_kind` | Generated tests use the mapped macro, a subpackage inherits it, and an existing mapped target keeps its hand-added `tags` |
 | `bazel_symlinks` | Bazel's `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<name>` links don't stop generation |
 | `multiline_string` | Lines inside multi-line `"…"`, `'…'` and `$'…'` strings are not read; an apostrophe in a comment is not a quote; when the tracker loses count, every line is read |
 | `ignore` | `# gazelle-bash: ignore` above a line or at its end, for `source`, `.` and `load` |

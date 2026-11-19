@@ -1,0 +1,6 @@
+load("//tests:defs.bzl", "my_bats_test")
+
+my_bats_test(
+    name = "b",
+    srcs = ["b.bats"],
+)

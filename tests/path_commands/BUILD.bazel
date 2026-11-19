@@ -1,0 +1,12 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+# gazelle:bash_path_dirs tests/path_commands/bin
+
+bats_test(
+    name = "greet",
+    srcs = ["greet.bats"],
+    data = [
+        "//tests/path_commands/bin:greet-tool_bin",
+        "//tests/path_commands/helpers:common",
+    ],
+)

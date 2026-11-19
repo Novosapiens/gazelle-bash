@@ -1,0 +1,6 @@
+load("//tests/shared_settings:defs.bzl", "env_bats_test")
+
+env_bats_test(
+    name = "inherit",
+    srcs = ["inherit.bats"],
+)

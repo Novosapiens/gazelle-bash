@@ -1,0 +1,2 @@
+# gazelle:map_kind bats_test my_bats_test //tests:defs.bzl
+# gazelle:map_kind sh_test my_sh_test //tests:defs.bzl

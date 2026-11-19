@@ -1,0 +1,79 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "with-ext",
+    srcs = ["with-ext.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "argument_bin",
+    srcs = ["argument"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "assigned_bin",
+    srcs = ["assigned"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "echo_bin",
+    srcs = ["echo"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "in-comment_bin",
+    srcs = ["in-comment"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "negated_bin",
+    srcs = ["negated"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "other-tool_bin",
+    srcs = ["other-tool"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "piped_bin",
+    srcs = ["piped"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "prefixed_bin",
+    srcs = ["prefixed"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "shared_bin",
+    srcs = ["shared"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "subst_bin",
+    srcs = ["subst"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "tool_bin",
+    srcs = ["tool"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "unused_bin",
+    srcs = ["unused"],
+    visibility = ["//:__subpackages__"],
+)
