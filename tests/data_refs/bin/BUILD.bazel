@@ -1,0 +1,8 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "hello_bin",
+    srcs = ["hello"],
+    data = ["//tests/data_refs/lib:say"],
+    visibility = ["//:__subpackages__"],
+)

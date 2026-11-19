@@ -18,6 +18,6 @@ jobs:
           bazelisk-cache: true
           repository-cache: true
       # Fails if regenerating the fixtures would change any committed BUILD.bazel.
-      - run: bazel run //:gazelle.check
+      - run: bazel run //:gazelle.check || { echo "BUILD files are stale. Run: bazel run //:gazelle"; exit 1; }
       # Runs the generated targets in the sandbox: proves declared deps are complete.
       - run: bazel test //...

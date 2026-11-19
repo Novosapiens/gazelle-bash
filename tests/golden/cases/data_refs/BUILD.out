@@ -1,0 +1,14 @@
+# gazelle:bash_root_vars REPO=.,APP=app
+# gazelle:bash_data_files docs/**,*.md,NOTICE,tests/fixtures/**,tests/other.bats
+
+filegroup(
+    name = "NOTICE_file",
+    srcs = ["NOTICE"],
+    visibility = ["//:__subpackages__"],
+)
+
+filegroup(
+    name = "README_md",
+    srcs = ["README.md"],
+    visibility = ["//:__subpackages__"],
+)

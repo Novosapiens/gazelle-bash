@@ -1,0 +1,44 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+filegroup(
+    name = "other_bats",
+    srcs = ["other.bats"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_test(
+    name = "check_test",
+    srcs = ["check_test.sh"],
+    data = ["//app/lib:core"],
+)
+
+sh_library(
+    name = "dyn",
+    srcs = ["dyn.sh"],
+    data = ["//app/lib/extra:more"],
+    visibility = ["//:__subpackages__"],
+)
+
+bats_test(
+    name = "main",
+    srcs = ["main.bats"],
+    data = [
+        ":other_bats",
+        "//:NOTICE_file",
+        "//:README_md",
+        "//app/bin:tool_bin",
+        "//app/lib:core",
+        "//app/lib/extra:more",
+        "//docs:GUIDE_md",
+        "//docs/notes:a_md",
+        "//docs/notes:b_txt",
+        "//tests/fixtures/one:input_json",
+    ],
+)
+
+bats_test(
+    name = "other",
+    srcs = ["other.bats"],
+)

@@ -1,0 +1,15 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+# DR is this directory. The test sets it at run time; these lines tell Gazelle what it means.
+# gazelle:bash_root_vars DR=tests/data_refs
+# gazelle:bash_data_files tests/data_refs/docs/**
+
+bats_test(
+    name = "read",
+    srcs = ["read.bats"],
+    data = [
+        "//tests/data_refs/bin:hello_bin",
+        "//tests/data_refs/docs:guide_md",
+        "//tests/data_refs/docs/more:extra_txt",
+    ],
+)

@@ -1,0 +1,11 @@
+filegroup(
+    name = "a_md",
+    srcs = ["a.md"],
+    visibility = ["//:__subpackages__"],
+)
+
+filegroup(
+    name = "b_txt",
+    srcs = ["b.txt"],
+    visibility = ["//:__subpackages__"],
+)

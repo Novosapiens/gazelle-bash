@@ -1,0 +1,1 @@
+tests/main.bats:11: skipped reference path that cannot be read statically: $REPO/docs/$name.md

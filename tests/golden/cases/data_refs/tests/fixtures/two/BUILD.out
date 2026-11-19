@@ -1,0 +1,5 @@
+filegroup(
+    name = "x_txt",
+    srcs = ["x.txt"],
+    visibility = ["//:__subpackages__"],
+)

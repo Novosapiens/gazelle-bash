@@ -1,5 +1,4 @@
 load("@bazel_lib//lib:bats.bzl", "bats_test")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_library.bzl", "sh_library")
 
 sh_library(
@@ -71,7 +70,7 @@ sh_library(
     visibility = ["//:__subpackages__"],
 )
 
-sh_binary(
+sh_library(
     name = "tool_sh",
     srcs = ["tool.sh"],
     visibility = ["//:__subpackages__"],

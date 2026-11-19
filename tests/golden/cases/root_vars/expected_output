@@ -1,0 +1,1 @@
+plugin/hooks/dyn.sh:3: skipped source path that cannot be read statically: "$APP_ROOT/lib/$name.sh"

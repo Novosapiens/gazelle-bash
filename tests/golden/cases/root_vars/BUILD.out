@@ -1,0 +1,1 @@
+# gazelle:bash_root_vars APP_ROOT=plugin,REPO=.

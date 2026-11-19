@@ -1,0 +1,2 @@
+# gazelle:bash_root_vars REPO=.,APP=app
+# gazelle:bash_data_files docs/**,*.md,NOTICE,tests/fixtures/**,tests/other.bats

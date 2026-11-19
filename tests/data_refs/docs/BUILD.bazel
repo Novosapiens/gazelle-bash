@@ -1,0 +1,5 @@
+filegroup(
+    name = "guide_md",
+    srcs = ["guide.md"],
+    visibility = ["//:__subpackages__"],
+)

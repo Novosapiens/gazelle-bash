@@ -1,0 +1,17 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "dyn",
+    srcs = ["dyn.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "start",
+    srcs = ["start.sh"],
+    data = [
+        "//plugin/lib:core",
+        "//plugin/lib/board:labels",
+    ],
+    visibility = ["//:__subpackages__"],
+)

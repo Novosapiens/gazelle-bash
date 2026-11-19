@@ -1,0 +1,11 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "tool",
+    srcs = ["tool.sh"],
+    data = [
+        "//plugin/lib:core",
+        "//plugin/lib/board:labels",
+    ],
+    visibility = ["//:__subpackages__"],
+)

@@ -1,0 +1,5 @@
+# Hand-written; must survive.
+filegroup(
+    name = "everything",
+    srcs = glob(["**"]),
+)

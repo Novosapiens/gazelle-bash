@@ -45,6 +45,12 @@ bazel run //:gazelle        # write BUILD files
 bazel run //:gazelle.check  # CI: fail if any BUILD file is stale
 ```
 
+`gazelle.check` prints the diff and exits 1, but doesn't say how to fix it. In CI, add the command:
+
+```sh
+bazel run //:gazelle.check || { echo "BUILD files are stale. Run: bazel run //:gazelle"; exit 1; }
+```
+
 ## What it generates
 
 One target per file:
@@ -52,23 +58,38 @@ One target per file:
 | Input | Output |
 | --- | --- |
 | `*_test.sh` | `sh_test` |
-| `*.sh` / `*.bash` starting with a `#!…sh` shebang | `sh_binary` |
-| `*.sh` / `*.bash` without a shebang | `sh_library` |
+| Any other `*.sh` / `*.bash` | `sh_library` |
+| No extension, first line a `sh` or `bash` shebang (also through `env`) | `sh_library` |
 | `*.bats` | `bats_test` (from `@bazel_lib//lib:bats.bzl`) |
+| A file matching `bash_data_files` | `filegroup` |
 
-Libraries and binaries are visible to `//:__subpackages__`, so any script in the repo can source them.
-Targets are named after the file without its extension. If two files in a package would get the same name,
-both keep the extension instead (`foo_sh`, `foo_bats`).
+A command is an `sh_library`, not an `sh_binary`. `bats_test` gives a test the files of its `data` targets
+but not their runfiles, and only `sh_library` passes on the files of what it depends on. With an
+`sh_binary` in the chain, a bats test that runs a command would not get the libraries the command sources.
+To `bazel run` a script, write an `sh_binary` for it by hand.
+
+Libraries and filegroups are visible to `//:__subpackages__`, so any script in the repo can use them.
+
+Target names:
+
+- A script is named after the file without its extension: `lib/log.sh` is `//lib:log`.
+- If two files in a package would get the same name, the ones with an extension keep it (`foo_sh`,
+  `foo_bats`).
+- A script with no extension gets a `_bin` suffix (`bin/tool` is `//bin:tool_bin`), because a target can't
+  have the same label as its source file.
+- A data file's name has `.` and `/` replaced by `_` (`GUIDE.md` is `GUIDE_md`). A name without either
+  gets a `_file` suffix (`NOTICE_file`).
 
 ## Dependencies
 
-Every dependency goes in `data`. `deps` would reject a sourced script that has a shebang, because that
-script is an `sh_binary`. Both attributes put the file in the runfiles, including files sourced in turn.
+Every dependency goes in `data`. It accepts scripts and plain files alike, and it is the only dependency
+attribute `bats_test` has.
 
-| In the script | Becomes |
+| In the file | Becomes |
 | --- | --- |
 | `source path` or `. path` at the start of a line | `data` |
 | bats `load name` | `data`, pointing at `name.bash` |
+| In a test, any `$VAR/path` whose `VAR` is in `bash_root_vars` | `data` |
 | `# gazelle-bash: dep path` | `data` |
 | `# shellcheck source=path` | `data` |
 
@@ -83,23 +104,63 @@ $(dirname "${BASH_SOURCE[0]}")/    ${BASH_SOURCE%/*}/    ${0%/*}/    $(dirname "
 $(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/    $BATS_TEST_DIRNAME/    $SCRIPT_DIR/
 ```
 
+`$(cd DIR && pwd)/` is read as `DIR/`, so `$(cd "$(dirname "$0")/.." && pwd)/lib/x.sh` resolves to
+`../lib/x.sh` from the script.
+
+A path that starts with a variable listed in `bash_root_vars` resolves from that variable's directory
+instead. With `# gazelle:bash_root_vars APP_ROOT=plugin`, `. "$APP_ROOT/lib/x.sh"` means `plugin/lib/x.sh`
+in every script.
+
 - **Literal path that matches no script:** generation fails, so a typo or a deleted library can't silently
   drop a dependency.
-- **Path still containing `$`, a glob or a backtick:** it is skipped and the skip is printed. Declare it with
-  a comment on the line above. No message is printed then.
+- **Path still containing `$`, a glob or a backtick:** it is skipped and the skip is printed with its file and
+  line. Declare it with a comment on the line above. No message is printed then.
 
 ```bash
 # shellcheck source=lib/log.sh
 source "$LIB_DIR/log.sh"
 
-# gazelle-bash: dep plugins/hello.sh
+# gazelle-bash: dep plugins/*.sh
 for p in "$here"/plugins/*.sh; do source "$p"; done
 ```
 
-A `gazelle-bash: dep` path is relative to the script's directory, or to the workspace root when it starts
-with `//`. A `shellcheck source=` path is relative to the workspace root, as when ShellCheck runs from the
-repo root. A path that starts with `SCRIPTDIR/` is relative to the script's directory. `source=/dev/null`
-is ignored.
+A `gazelle-bash: dep` path is relative to the script's directory. It is relative to the workspace root when
+it starts with `//`, and to a `bash_root_vars` directory when it starts with that variable. A path that ends
+in `/` or holds a wildcard means every dependable file under that directory, subdirectories included: the
+wildcard itself is not applied, so `plugins/*.sh` and `plugins/` mean the same. The comment can also be
+written `# gazelle:sh_dynamic_dep path` or `# gazelle:bats_data path`; all three do the same thing.
+
+A `shellcheck source=` path is relative to the workspace root, as when ShellCheck runs from the repo root.
+A path that starts with `SCRIPTDIR/` is relative to the script's directory. `source=/dev/null` is ignored.
+
+### What a test reads
+
+Sourcing is not the only way a test depends on a file: it runs commands and reads documents. Tell the
+extension which variables hold a fixed directory, and which non-script files tests may read:
+
+```starlark
+# gazelle:bash_root_vars APP_ROOT=plugin,REPO=.
+# gazelle:bash_data_files docs/**,*.md,tests/fixtures/**
+```
+
+Then in every `.bats` and `*_test.sh` file, each `$APP_ROOT/...` or `${REPO}/...` becomes a dependency:
+
+| In the test | Becomes |
+| --- | --- |
+| `"$APP_ROOT/bin/tool"` | That command's target, which brings the libraries it sources |
+| `"$REPO/docs/GUIDE.md"` | That file's filegroup |
+| `"$REPO/docs/notes/"`, `$REPO/docs/notes/*.md` or the directory without a `/` | Every dependable file under `docs/notes` |
+
+These references are read anywhere on a line, including strings and heredocs, but not in full-line
+comments. Unlike a `source` line, one that matches nothing is dropped without a message: a test may name a
+path it creates itself. A test that reads a file it didn't declare fails in the sandbox, which is the check.
+A reference with a `$` later in the path is printed as skipped, like a `source` line.
+
+Only tests have their references read. In a library or command, a mention of another command would often
+make a dependency cycle, so declare those with a comment.
+
+A file can only be depended on if it has a target: a script, or a file that matches `bash_data_files`. Each
+directory holding such files gets a BUILD file.
 
 ## Settings
 
@@ -108,6 +169,8 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 | Directive | Default | Meaning |
 | --- | --- | --- |
 | `# gazelle:bash_dir_vars SCRIPT_DIR,HERE` | `SCRIPT_DIR` | Variable names that hold "this script's directory" |
+| `# gazelle:bash_root_vars APP_ROOT=plugin,REPO=.` | none | Variables that hold a fixed directory, as `NAME=path` from the workspace root (`.` is the root) |
+| `# gazelle:bash_data_files docs/**,*.md` | none | Non-script files tests may depend on, as globs from the workspace root. Each match gets a filegroup |
 | `# gazelle:bash_shellcheck_relative_to script` | `workspace` | What a `shellcheck source=` path is relative to |
 | `# gazelle:gazelle_bash disabled` | enabled | Turn the extension off for a subtree |
 
@@ -119,11 +182,14 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 - **Commands on `PATH`** (`git`, `jq`, `gh`) are not tracked. Tests use whatever the machine has.
 - **Only lines that start with `source`, `.` or `load` are read.** A `source` after `then`, `&&` or `;` on
   the same line is missed. Use a comment for those.
-- **`bazel run` of an `sh_binary` that sources a sibling via `BASH_SOURCE` fails.** The files are in its
-  runfiles, but `bazel run` starts the binary from `bazel-bin/…`, not from inside the runfiles tree.
-  `bazel test` is unaffected: tests start inside the runfiles tree. Binaries meant for `bazel run` should
-  find their files with the [Bash runfiles library](https://github.com/bazelbuild/bazel/blob/master/tools/bash/runfiles/runfiles.bash).
-  `realpath` and `readlink` on the script's own path fail the same way.
+- **Scripts that find their own directory with `realpath` or `readlink` fail under Bazel.** Tests run in a
+  runfiles tree of symlinks, so the real path points outside the sandbox. Sourcing relative to
+  `BASH_SOURCE` or `$0` works.
+- **A reference in a test body that matches nothing is dropped silently.** See "What a test reads".
+- **A wildcard in a declared path selects the whole directory tree**, not only the files the wildcard
+  matches.
+- **Every file with no extension is read** to check its first line, and with `bash_data_files` set, every
+  file is. On a large repo this slows generation.
 
 ## Developing
 
@@ -141,11 +207,13 @@ the declared dependencies are complete, because an undeclared file is not in the
 | --- | --- |
 | `library_only` | Scripts without a shebang become one `sh_library` each |
 | `binary_sources_lib` | A `source` / `.` line becomes a dependency |
+| `data_refs` | A bats test gets the command it runs (with the library that command sources), a file it names and a directory it names |
 | `bats_basic` | A `.bats` file becomes a `bats_test` that passes |
 | `bats_load_helper` | `load helper` pulls in `helper.bash` |
 | `cross_package` | Sourcing from another directory resolves to that package's label |
 | `dynamic_source` | A runtime-built path is skipped and generation still succeeds |
 | `comment_dep` | The comment adds a dependency the parser cannot see |
+| `extensionless` | A command with no file extension gets a target a test can depend on |
 | `shebang_lib` | Sourcing a script with a shebang works, through two levels of sourcing |
 
 **Golden cases** (`tests/golden/cases/*`) are small workspaces that the real prebuilt Gazelle runs on.
@@ -159,13 +227,16 @@ that would break the repo's own generation. Each case can hold:
 
 | Case | Pins |
 | --- | --- |
+| `extensionless` | Files with no extension: `sh`, `bash` and `env` shebangs get a target; Python, a late shebang and plain text don't; the `_bin` name, also next to `dup.sh` and `clash_bin.sh` |
 | `heredoc` | `source` lines inside heredocs are ignored; `<<<`, `$((1 << 2))` and a stray `"a << b"` are not heredocs |
 | `missing_literal` | A literal path to no script fails generation with a clear error |
-| `path_forms` | Quoting, comments, `\|\|`/`;`, `. ./`, `dirname --`, `${VAR}`, `//` comments, `bash_dir_vars`, bats `load` forms, name collisions, skipped paths |
+| `path_forms` | Quoting, comments, `\|\|`/`;`, `. ./`, `dirname --`, `${VAR}`, `//` comments, `bash_dir_vars` (comma list), bats `load` forms, name collisions, skipped paths |
+| `root_vars` | `bash_root_vars` in `$VAR` and `${VAR}` form, `$(cd … && pwd)/` with `..` and redirections, the line number in a skip message |
 | `shellcheck` | `source=` (workspace- and script-relative), `SCRIPTDIR/`, `/dev/null`, combined directives |
-| `source_shebang` | A sourced script with a shebang is referenced through `data` |
+| `source_shebang` | A sourced script with a shebang is an `sh_library` referenced through `data` |
 | `hand_edits` | Hand-added attributes and targets survive regeneration |
 | `stale_target` | Known limit: a target for a deleted file is kept |
+| `data_refs` | References in tests: files, directories, wildcards, comments, escapes, paths made at run time; `bash_data_files` filegroups; a hand-written filegroup survives; the glob forms of the comment |
 | `disabled` | `# gazelle:gazelle_bash disabled` turns it off for a subtree only |
 
 ```sh

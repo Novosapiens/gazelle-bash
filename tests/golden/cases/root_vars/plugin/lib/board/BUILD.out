@@ -1,0 +1,8 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "labels",
+    srcs = ["labels.sh"],
+    data = ["//plugin/lib:core"],
+    visibility = ["//:__subpackages__"],
+)

@@ -1,0 +1,14 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+sh_test(
+    name = "greet_test",
+    srcs = ["greet_test.sh"],
+    data = [":greet_bin"],
+)
+
+sh_library(
+    name = "greet_bin",
+    srcs = ["greet"],
+    visibility = ["//:__subpackages__"],
+)

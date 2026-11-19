@@ -1,0 +1,50 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "clash_bin_sh",
+    srcs = ["clash_bin.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "dup",
+    srcs = ["dup.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "clash_bin",
+    srcs = ["clash"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "dup_bin",
+    srcs = ["dup"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "envflags_bin",
+    srcs = ["envflags"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "envtool_bin",
+    srcs = ["envtool"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "shim_bin",
+    srcs = ["shim"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "tool_bin",
+    srcs = ["tool"],
+    data = ["//lib:core"],
+    visibility = ["//:__subpackages__"],
+)

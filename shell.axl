@@ -4,35 +4,42 @@ Started from aspect-starters/shell `.aspect/gazelle/shell.axl` (Apache-2.0), the
 
   * one target per script, so Bazel can skip tests a change cannot reach;
   * `source path` / `. path` lines, and bats `load name` lines, become `data`;
-  * `# gazelle-bash: dep <path>` and `# shellcheck source=<path>` declare a dependency
-    that cannot be read statically.
+  * in a test, every `$VAR/path` whose VAR is listed in `bash_root_vars` becomes `data`;
+  * `# gazelle-bash: dep <path>` (also spelled `# gazelle:sh_dynamic_dep` and
+    `# gazelle:bats_data`) and `# shellcheck source=<path>` declare a dependency that
+    cannot be read statically.
 
 Generation rules:
 
-  | Input                                 | Output                 |
-  | ------------------------------------- | ---------------------- |
-  | `*_test.sh`                           | `sh_test`              |
-  | `*.sh` / `*.bash` with a `#!...sh`    | `sh_binary`            |
-  | `*.sh` / `*.bash` without a shebang   | `sh_library`           |
-  | `*.bats`                              | `bats_test`            |
+  | Input                                  | Output                 |
+  | -------------------------------------- | ---------------------- |
+  | `*_test.sh`                            | `sh_test`              |
+  | other `*.sh` / `*.bash`                | `sh_library`           |
+  | no extension, sh/bash shebang line 1   | `sh_library`           |
+  | `*.bats`                               | `bats_test`            |
+  | file matching `bash_data_files`        | `filegroup`            |
 
-Sourced files go in `data`, not `deps`: `deps` only accepts `sh_library`, but a sourced
-script often has a shebang and so is an `sh_binary`. Both put the file in the runfiles.
+A command is an `sh_library` too, not an `sh_binary`. `bats_test` gives a test the files of
+its `data` targets but not their runfiles, and only `sh_library` passes on the files of what
+it depends on. An `sh_binary` in the chain would drop the libraries a command sources.
+
+Every dependency goes in `data`: it accepts scripts and plain files alike, and it is the
+only dependency attribute `bats_test` has.
 
 Every script publishes its workspace-relative path as a `shell` symbol, so a captured
 path resolves to the label of whichever target owns that script, in any package.
-A literal path that matches no script fails generation. A path still containing `$`
+A literal path that matches no script fails generation. A path that starts with a `bash_root_vars`
+variable resolves from that variable's directory. A path still containing `$`
 after normalisation is reported and skipped; declare it with a comment instead.
 Lines inside heredocs are not read.
 """
 
 _PROVIDER = "shell"
 
-aspect.gazelle_rule_kind("sh_binary", {
-    "From": "@rules_shell//shell:sh_binary.bzl",
-    "MergeableAttrs": ["srcs"],
-    "ResolveAttrs": ["data"],
-})
+# Every dependable file also publishes each directory above it under this provider, so
+# "everything under dir/" is one import with `multiple = True`.
+_TREE = "shell_tree"
+
 aspect.gazelle_rule_kind("sh_library", {
     "From": "@rules_shell//shell:sh_library.bzl",
     "MergeableAttrs": ["srcs"],
@@ -47,6 +54,11 @@ aspect.gazelle_rule_kind("bats_test", {
     "From": "@bazel_lib//lib:bats.bzl",
     "MergeableAttrs": ["srcs"],
     "ResolveAttrs": ["data"],
+})
+
+# Native rule, registered so the symbols of generated filegroups are indexed.
+aspect.gazelle_rule_kind("filegroup", {
+    "MergeableAttrs": ["srcs"],
 })
 
 # --- Shell words -------------------------------------------------------------
@@ -210,6 +222,12 @@ def _scan(content):
                 if arg:
                     found.append(("dep", arg, i))
                 continue
+            for name in ("gazelle:sh_dynamic_dep", "gazelle:bats_data"):
+                arg = _directive(text, name)
+                if arg:
+                    found.append(("dep", arg, i))
+            if text.startswith("gazelle:"):
+                continue
             sc = _directive(text, "shellcheck")
             if sc != None:
                 for tok in sc.split(" "):
@@ -232,8 +250,7 @@ def _dir_prefixes(dir_vars):
         "$(dirname ${BASH_SOURCE})/",
         "$(dirname $BASH_SOURCE)/",
         "$(dirname -- ${BASH_SOURCE[0]})/",
-        "$(cd $(dirname ${BASH_SOURCE[0]}) && pwd)/",
-        "$(cd -- $(dirname -- ${BASH_SOURCE[0]}) && pwd)/",
+        "$(dirname -- $0)/",
         "${BASH_SOURCE%/*}/",
         "${BASH_SOURCE[0]%/*}/",
         "$(dirname $0)/",
@@ -242,7 +259,7 @@ def _dir_prefixes(dir_vars):
         "$BATS_TEST_DIRNAME/",
         "${BATS_TEST_DIRNAME}/",
     ]
-    for v in dir_vars:
+    for v in _list(dir_vars):
         prefixes.append("$" + v + "/")
         prefixes.append("${" + v + "}/")
     return prefixes
@@ -261,120 +278,353 @@ def _clean(p):
             parts.append(seg)
     return "/".join(parts)
 
-def _normalise(word, base_dir, prefixes):
-    """Turns a captured path into a workspace-relative path, or None if it cannot be read statically."""
+def _list(values):
+    """Splits a list property on commas and whitespace: Orion passes `A,B` through as one value."""
+    out = []
+    for value in values:
+        for item in value.replace(",", " ").split(" "):
+            if item:
+                out.append(item)
+    return out
+
+def _root_vars(entries):
+    """Parses `NAME=path` entries into {NAME: workspace-relative path}. `.` is the workspace root."""
+    roots = {}
+    for entry in _list(entries):
+        name, sep, value = entry.partition("=")
+        name = name.strip()
+        root = _clean(value.strip())
+        if not sep or not name or root == None:
+            fail("gazelle-bash: bash_root_vars entry must be NAME=path inside the workspace, got: " + entry)
+        roots[name] = root
+    return roots
+
+def _unwrap_cd_pwd(word):
+    """Rewrites `$(cd DIR && pwd)/rest` to `DIR/rest`. Redirections after DIR are dropped."""
+    if not word.startswith("$(cd "):
+        return word
+    end = word.find(" && pwd)/")
+    if end < 0:
+        return word
+    inner = word[len("$(cd "):end].removeprefix("-- ")
+    for redirect in (" >", " &>", " 2>"):
+        inner = inner.split(redirect)[0]
+    return inner + "/" + word[end + len(" && pwd)/"):]
+
+def _resolve(word, base_dir, prefixes, roots, allow_tree = False):
+    """Turns a captured path into (workspace-relative path, is_tree), or None if it cannot
+    be read statically.
+
+    A path that starts with a `bash_root_vars` variable is resolved from that variable's
+    directory. Otherwise a leading "directory of this script" idiom is stripped and the
+    rest is resolved from `base_dir`.
+
+    With `allow_tree`, a path that ends in `/` or holds a wildcard names a directory tree:
+    the directory before the first wildcard. The root of the workspace is `.`.
+    """
     if not word:
         return None
-    for prefix in prefixes:
-        if word.startswith(prefix):
-            word = word[len(prefix):]
+    word = _unwrap_cd_pwd(word)
+    tree = allow_tree and word.endswith("/")
+    rooted = False
+    for name, root in roots.items():
+        for prefix in ("$" + name + "/", "${" + name + "}/"):
+            if word.startswith(prefix):
+                word = word[len(prefix):]
+                base_dir = root
+                rooted = True
+                break
+        if rooted:
             break
-    if "$" in word or "`" in word or "*" in word or "?" in word or word.startswith("/") or word.startswith("~"):
+    if not rooted:
+        for prefix in prefixes:
+            if word.startswith(prefix):
+                word = word[len(prefix):]
+                break
+    if "`" in word or word.startswith("/") or word.startswith("~"):
         return None
-    return _clean(path.join(base_dir, word) if base_dir else word)
+    if allow_tree:
+        segments = word.split("/")
+        for i in range(len(segments)):
+            if "*" in segments[i] or "?" in segments[i] or "[" in segments[i]:
+                word = "/".join(segments[:i])
+                tree = True
+                break
+    if "$" in word or "*" in word or "?" in word:
+        return None
+    joined = _clean(path.join(base_dir, word) if base_dir and word else (base_dir or word))
+    if joined == None:
+        return None
+    if tree:
+        return (joined or ".", True)
+    return (joined, False) if joined else None
+
+_PATH_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./*?$-+@%{}[]~"
+
+def _refs(content, roots):
+    """Returns [(path, line_index)] for every `$VAR/path` in `content` whose VAR is a
+    `bash_root_vars` name. Full-line comments are not read; heredocs and strings are."""
+    found = []
+    lines = content.split("\n")
+    for i in range(len(lines)):
+        line = lines[i]
+        if line.strip().startswith("#"):
+            continue
+        for name in roots:
+            for prefix in ("$" + name + "/", "${" + name + "}/"):
+                start = 0
+                for _ in range(len(line)):
+                    at = line.find(prefix, start)
+                    if at < 0:
+                        break
+                    start = at + len(prefix)
+                    if at > 0 and line[at - 1] == "\\":
+                        continue
+                    end = start
+                    for j in range(start, len(line)):
+                        if line[j] not in _PATH_CHARS:
+                            break
+                        end = j + 1
+                    found.append((line[at:end], i))
+    return found
+
+# --- Globs -------------------------------------------------------------------
+
+def _segment_match(pattern, s):
+    """Matches one path segment against a pattern with `*` and `?`."""
+    states = {0: True}  # how many characters of `s` are consumed
+    for i in range(len(pattern)):
+        c = pattern[i]
+        after = {}
+        if c == "*":
+            for k in range(min(states.keys()), len(s) + 1):
+                after[k] = True
+        else:
+            for k in states:
+                if k < len(s) and (c == "?" or s[k] == c):
+                    after[k + 1] = True
+        if not after:
+            return False
+        states = after
+    return len(s) in states
+
+def _glob_match(pattern, p):
+    """Matches a workspace-relative path against a glob. `**` spans directories."""
+    segments = p.split("/")
+    states = {0: True}  # how many segments are consumed
+    for part in pattern.split("/"):
+        if part == "" or part == ".":
+            continue
+        after = {}
+        if part == "**":
+            for k in range(min(states.keys()), len(segments) + 1):
+                after[k] = True
+        else:
+            for k in states:
+                if k < len(segments) and _segment_match(part, segments[k]):
+                    after[k + 1] = True
+        if not after:
+            return False
+        states = after
+    return len(segments) in states
 
 # --- Stages ------------------------------------------------------------------
 
-def _prepare(_):
+def _prepare(ctx):
+    sources = {
+        "scripts": aspect.SourceExtensions(".bash", ".sh"),
+        "bats": aspect.SourceExtensions(".bats"),
+        # Files with no extension; only those whose first line is a sh/bash shebang get a target.
+        "bare": aspect.SourceGlobs("**", exclude = ["**/*.*"]),
+    }
+    if _list(ctx.properties["bash_data_files"]):
+        # Candidates for a per-file filegroup; `_declare` keeps those the setting names.
+        sources["data"] = aspect.SourceGlobs("**", exclude = ["**/BUILD", "**/BUILD.bazel"])
     return aspect.PrepareResult(
-        sources = {
-            "scripts": aspect.SourceExtensions(".bash", ".sh"),
-            "bats": aspect.SourceExtensions(".bats"),
-        },
+        sources = sources,
         queries = {
-            "shebang": aspect.RegexQuery(
-                expression = "^#!.*sh",
-            ),
             # Whole file: dependency lines are read by `_scan`, which can skip heredocs.
             "content": aspect.RawQuery(),
         },
     )
 
+def _is_shell_shebang(content):
+    """True if the first line runs sh or bash, directly or through `env`."""
+    first = content.split("\n", 1)[0].strip()
+    if not first.startswith("#!"):
+        return False
+    words = [w for w in first[2:].replace("\t", " ").split(" ") if w]
+    if not words:
+        return False
+    interpreter = path.base(words[0])
+    if interpreter == "env":
+        args = [w for w in words[1:] if not w.startswith("-")]
+        interpreter = path.base(args[0]) if args else ""
+    return interpreter in ("sh", "bash")
+
+def _stem(base):
+    """Target name for a file: its name without extension. A file with no extension gets a
+    `_bin` suffix, because a target cannot share a label with its own source file."""
+    ext = path.ext(base)
+    return base.removesuffix(ext) if ext else base + "_bin"
+
 def _target_names(sources):
-    """Maps each path to a target name: its basename without extension, or with the
-    extension folded in (`foo_sh`) when two files in the package would collide."""
+    """Maps each path to a target name. When two files in the package would collide, the
+    one with an extension folds it in (`foo_sh`)."""
     stems = {}
     for f in sources:
-        base = path.base(f.path)
-        stem = base.removesuffix(path.ext(base))
+        stem = _stem(path.base(f.path))
         stems[stem] = stems.get(stem, 0) + 1
     names = {}
     for f in sources:
         base = path.base(f.path)
-        stem = base.removesuffix(path.ext(base))
-        names[f.path] = stem if stems[stem] == 1 else base.replace(".", "_")
+        stem = _stem(base)
+        names[f.path] = stem if stems[stem] == 1 or not path.ext(base) else base.replace(".", "_")
     return names
 
-def _imports(ctx, file, prefixes):
+def _join(rel, p):
+    return path.join(rel, p) if rel else p
+
+def _symbols(ws_path, tree = True):
+    """Symbols for a dependable file: its own path and, with `tree`, every directory above it."""
+    symbols = [aspect.Symbol(id = ws_path, provider = _PROVIDER)]
+    if not tree:
+        return symbols
+    parent = ws_path.rpartition("/")[0]
+    for _ in range(ws_path.count("/") + 1):
+        symbols.append(aspect.Symbol(id = parent or ".", provider = _TREE))
+        if not parent:
+            break
+        parent = parent.rpartition("/")[0]
+    return symbols
+
+def _imports(ctx, file, prefixes, roots, is_test):
     """Collects `aspect.Import`s for every statically readable dependency of `file`."""
-    script_dir = path.join(ctx.rel, path.dirname(file.path)) if ctx.rel else path.dirname(file.path)
+    file_path = _join(ctx.rel, file.path)
+    script_dir = file_path.rpartition("/")[0]
     shellcheck_base = script_dir if ctx.properties["bash_shellcheck_relative_to"] == "script" else ""
     is_bats = file.path.endswith(".bats")
+    content = file.query_results["content"]
     seen = {}
     imports = []
 
-    # Lines declared by a comment directly above; a dynamic `source` there is expected.
+    def add(resolved, optional):
+        id, tree = resolved
+        if (id, tree) in seen:
+            return
+        seen[(id, tree)] = True
+        if tree:
+            imports.append(aspect.Import(id = id, provider = _TREE, multiple = True, optional = optional, src = file.path))
+        else:
+            imports.append(aspect.Import(id = id, provider = _PROVIDER, optional = optional, src = file.path))
+
+    def skipped(kind, line, text):
+        print("gazelle-bash: %s:%d: skipped %s path that cannot be read statically: %s" % (file_path, line + 1, kind, text))
+
+    # Lines declared by a comment directly above; a dynamic path there is expected.
+    scanned = _scan(content)
     covered = {}
-    for kind, raw, line in _scan(file.query_results["content"]):
+    for kind, raw, line in scanned:
         if kind == "dep" or kind == "shellcheck":
             covered[line + 1] = True
-            continue
-    for kind, raw, line in _scan(file.query_results["content"]):
+    for kind, raw, line in scanned:
         word = _first_word(raw)
         if kind == "load":
             if not is_bats:
                 continue
             if word and not (word.endswith(".bash") or word.endswith(".sh")):
                 word += ".bash"
-            id = _normalise(word, script_dir, prefixes)
+            resolved = _resolve(word, script_dir, prefixes, roots)
         elif kind == "dep" and word.startswith("//"):
-            id = _clean(word[2:])
+            resolved = _resolve(word[2:], "", [], {}, allow_tree = True)
+        elif kind == "dep":
+            resolved = _resolve(word, script_dir, prefixes, roots, allow_tree = True)
         elif kind == "shellcheck":
             if word == "/dev/null":
                 continue
             if word.startswith("SCRIPTDIR/"):
-                id = _normalise(word.removeprefix("SCRIPTDIR/"), script_dir, prefixes)
+                resolved = _resolve(word.removeprefix("SCRIPTDIR/"), script_dir, prefixes, roots)
             else:
-                id = _normalise(word, shellcheck_base, prefixes)
+                resolved = _resolve(word, shellcheck_base, prefixes, roots)
         else:
-            id = _normalise(word, script_dir, prefixes)
+            resolved = _resolve(word, script_dir, prefixes, roots)
 
-        if id == None:
-            if line in covered:
+        if resolved == None:
+            if line not in covered:
+                skipped(kind, line, raw.strip())
+            continue
+        add(resolved, optional = False)
+
+    # A test also depends on every `$ROOT_VAR/path` it mentions. These are optional: a test
+    # may name a path it creates itself, and the sandbox catches a real one left undeclared.
+    if is_test:
+        for word, line in _refs(content, roots):
+            resolved = _resolve(word, "", [], roots, allow_tree = True)
+            if resolved == None:
+                if line not in covered:
+                    skipped("reference", line, word)
                 continue
-            print("gazelle-bash: %s: skipped %s path that cannot be read statically: %s" % (
-                path.join(ctx.rel, file.path),
-                kind,
-                raw.strip(),
-            ))
-            continue
-        if id in seen:
-            continue
-        seen[id] = True
-        imports.append(aspect.Import(id = id, provider = _PROVIDER, src = file.path))
+            add(resolved, optional = True)
+            if not resolved[1]:
+                add((resolved[0], True), optional = True)  # the path may be a directory
 
     return imports
+
+def _data_name(p):
+    """Target name for a data file: `docs/a.md` -> `docs_a_md`, `NOTICE` -> `NOTICE_file`."""
+    name = p.replace("/", "_").replace(".", "_")
+    return name + "_file" if name == p else name
 
 def _declare(ctx):
     scripts = list(ctx.sources.scripts)
     bats = list(ctx.sources.bats)
-    if not scripts and not bats:
+    bare = [f for f in ctx.sources.bare if _is_shell_shebang(f.query_results["content"])]
+    scripts = scripts + bare
+
+    data_files = []
+    data_globs = _list(ctx.properties["bash_data_files"])
+    if data_globs:
+        taken = {f.path: True for f in scripts}
+        for f in ctx.sources.data:
+            ws_path = _join(ctx.rel, f.path)
+            if f.path not in taken and any([_glob_match(g, ws_path) for g in data_globs]):
+                data_files.append(f.path)
+        data_files = sorted(data_files)
+
+    if not scripts and not bats and not data_files:
         return
 
     prefixes = _dir_prefixes(ctx.properties["bash_dir_vars"])
+    roots = _root_vars(ctx.properties["bash_root_vars"])
     names = _target_names(scripts + bats)
 
+    used = {name: p for p, name in names.items()}
+    for p in data_files:
+        name = _data_name(p)
+        if name in used:
+            fail("gazelle-bash: %s: %s and %s would both get the target name %s; exclude one from bash_data_files" % (
+                ctx.rel or ".",
+                used[name],
+                p,
+                name,
+            ))
+        used[name] = p
+        ctx.targets.add(
+            name = name,
+            kind = "filegroup",
+            attrs = {
+                "srcs": [p],
+                "visibility": ["//:__subpackages__"],
+            },
+            symbols = _symbols(_join(ctx.rel, p)),
+        )
+
     for file in scripts:
-        if file.path.endswith("_test.sh"):
-            kind = "sh_test"
-        elif len(file.query_results["shebang"]) > 0:
-            kind = "sh_binary"
-        else:
-            kind = "sh_library"
+        kind = "sh_test" if file.path.endswith("_test.sh") else "sh_library"
 
         attrs = {
             "srcs": [file.path],
-            "data": _imports(ctx, file, prefixes),
+            "data": _imports(ctx, file, prefixes, roots, kind == "sh_test"),
         }
         if kind != "sh_test":
             attrs["visibility"] = ["//:__subpackages__"]
@@ -383,10 +633,7 @@ def _declare(ctx):
             name = names[file.path],
             kind = kind,
             attrs = attrs,
-            symbols = [aspect.Symbol(
-                id = path.join(ctx.rel, file.path) if ctx.rel else file.path,
-                provider = _PROVIDER,
-            )],
+            symbols = _symbols(_join(ctx.rel, file.path), tree = kind != "sh_test"),
         )
 
     for file in bats:
@@ -395,7 +642,7 @@ def _declare(ctx):
             kind = "bats_test",
             attrs = {
                 "srcs": [file.path],
-                "data": _imports(ctx, file, prefixes),
+                "data": _imports(ctx, file, prefixes, roots, True),
             },
         )
 
@@ -405,6 +652,14 @@ aspect.orion_extension(
         # Extra variable names that hold "the directory of this script", eg
         #   # gazelle:bash_dir_vars SCRIPT_DIR,HERE
         "bash_dir_vars": aspect.Property(type = "[]string", default = ["SCRIPT_DIR"]),
+        # Variables that hold a fixed directory of the repo, as NAME=path from the workspace
+        # root (`.` for the root itself), eg
+        #   # gazelle:bash_root_vars APP_ROOT=plugin,REPO=.
+        "bash_root_vars": aspect.Property(type = "[]string", default = []),
+        # Non-script files that tests may depend on, as globs from the workspace root. Each
+        # match gets a filegroup of its own, eg
+        #   # gazelle:bash_data_files docs/**,*.md,tests/fixtures/**
+        "bash_data_files": aspect.Property(type = "[]string", default = []),
         # What a `# shellcheck source=path` is relative to: "workspace" (ShellCheck run from
         # the repo root, its default) or "script". `source=SCRIPTDIR/...` is always the script's.
         "bash_shellcheck_relative_to": aspect.Property(type = "string", default = "workspace"),
