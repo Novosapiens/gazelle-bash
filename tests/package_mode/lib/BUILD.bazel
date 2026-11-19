@@ -1,0 +1,19 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+# gazelle:bash_generation_mode package
+
+sh_library(
+    name = "lib",
+    srcs = [
+        "case.sh",
+        "words.sh",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+bats_test(
+    name = "lib_bats",
+    srcs = ["lib.bats"],
+    data = [":lib"],
+)

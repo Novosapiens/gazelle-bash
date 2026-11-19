@@ -1,0 +1,10 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+# gazelle:bash_generation_mode package
+# gazelle:bash_data_files **/*.txt
+
+sh_library(
+    name = "root",
+    srcs = ["root.sh"],
+    visibility = ["//:__subpackages__"],
+)

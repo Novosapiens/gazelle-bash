@@ -1,0 +1,43 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+filegroup(
+    name = "util_files",
+    srcs = [
+        "more.txt",
+        "notes.txt",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "util",
+    srcs = [
+        "a.sh",
+        "b.sh",
+        "c.sh",
+        "tool",
+    ],
+    data = [
+        ":util_files",
+        "//:root",
+        "//util/sub",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_test(
+    name = "b_test",
+    srcs = ["b_test.sh"],
+    data = [":util"],
+)
+
+bats_test(
+    name = "util_bats",
+    srcs = ["util.bats"],
+    data = [
+        ":util",
+        ":util_files",
+    ],
+)

@@ -2,7 +2,9 @@
 
 Started from aspect-starters/shell `.aspect/gazelle/shell.axl` (Apache-2.0), then extended:
 
-  * one target per script, so Bazel can skip tests a change cannot reach;
+  * one target per script, so Bazel can skip tests a change cannot reach, or with
+    `bash_generation_mode package` one library and one filegroup per directory (tests
+    still get one target each);
   * `source path` / `. path` lines, and bats `load name` lines, become `data`;
   * in a test, every `$VAR/path` whose VAR is listed in `bash_root_vars` becomes `data`;
   * `# gazelle-bash: dep <path>` (also spelled `# gazelle:sh_dynamic_dep` and
@@ -628,19 +630,24 @@ def _symbols(ws_path, tree = True):
         parent = parent.rpartition("/")[0]
     return symbols
 
-def _imports(ctx, file, prefixes, roots, path_dirs, is_test):
-    """Collects `aspect.Import`s for every statically readable dependency of `file`."""
+def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = {}):
+    """Collects `aspect.Import`s for every statically readable dependency of `file`.
+
+    `seen` is shared between calls to drop duplicates across files of one target. `own` holds
+    the workspace paths of the files in the target itself; a file path in it is not imported.
+    """
     file_path = _join(ctx.rel, file.path)
     script_dir = file_path.rpartition("/")[0]
     shellcheck_base = script_dir if ctx.properties["bash_shellcheck_relative_to"] == "script" else ""
     is_bats = file.path.endswith(".bats")
     content = file.query_results["content"]
-    seen = {}
+    if seen == None:
+        seen = {}
     imports = []
 
     def add(resolved, optional):
         id, tree = resolved
-        if (id, tree) in seen:
+        if (id, tree) in seen or (not tree and id in own):
             return
         seen[(id, tree)] = True
         if tree:
@@ -747,6 +754,13 @@ def _declare(ctx):
         if cleaned == None:
             fail("gazelle-bash: bash_path_dirs entry must be a directory inside the workspace, got: " + d)
         path_dirs.append(cleaned)
+    mode = ctx.properties["bash_generation_mode"]
+    if mode not in ("file", "package"):
+        fail("gazelle-bash: bash_generation_mode must be file or package, got: " + mode)
+    if mode == "package":
+        _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs)
+        return
+
     names = _target_names(scripts + bats)
 
     used = {name: p for p, name in names.items()}
@@ -797,9 +811,102 @@ def _declare(ctx):
             },
         )
 
+def _package_symbols(ctx, files):
+    """Symbols for a target that owns several dependable files, without duplicates."""
+    seen = {}
+    symbols = []
+    for p in files:
+        for s in _symbols(_join(ctx.rel, p)):
+            if (s.id, s.provider) not in seen:
+                seen[(s.id, s.provider)] = True
+                symbols.append(s)
+    return symbols
+
+def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs):
+    """`bash_generation_mode package`: one `sh_library` for every library and command in the
+    package, one filegroup for its `bash_data_files`, and one target per test.
+
+    The library is named after the directory (`root` at the workspace root), the filegroup
+    `<name>_files`. A test whose name would clash with either folds its extension in.
+    """
+    tests = [f for f in scripts if f.path.endswith("_test.sh")] + bats
+    libs = sorted([f for f in scripts if not f.path.endswith("_test.sh")], key = lambda f: f.path)
+
+    base = path.base(ctx.rel) if ctx.rel else "root"
+    lib_name = base
+    files_name = base + "_files"
+    taken = {}
+    if libs:
+        taken[lib_name] = "the package library"
+    if data_files:
+        taken[files_name] = "the package filegroup"
+
+    names = _target_names(tests)
+    for f in tests:
+        name = names[f.path]
+        if name in taken:
+            name = path.base(f.path).replace(".", "_")
+        if name in taken:
+            fail("gazelle-bash: %s: %s and %s would both get the target name %s; rename the file" % (
+                ctx.rel or ".",
+                f.path,
+                taken[name],
+                name,
+            ))
+        taken[name] = f.path
+        names[f.path] = name
+
+    if data_files:
+        ctx.targets.add(
+            name = files_name,
+            kind = "filegroup",
+            attrs = {
+                "srcs": data_files,
+                "visibility": ["//:__subpackages__"],
+            },
+            symbols = _package_symbols(ctx, data_files),
+        )
+
+    if libs:
+        own = {_join(ctx.rel, f.path): True for f in libs}
+        seen = {}
+        data = []
+        for f in libs:
+            data += _imports(ctx, f, prefixes, roots, path_dirs, False, seen = seen, own = own)
+        ctx.targets.add(
+            name = lib_name,
+            kind = "sh_library",
+            attrs = {
+                "srcs": [f.path for f in libs],
+                "data": data,
+                "visibility": ["//:__subpackages__"],
+            },
+            symbols = _package_symbols(ctx, [f.path for f in libs]),
+        )
+
+    for f in tests:
+        attrs = {
+            "srcs": [f.path],
+            "data": _imports(ctx, f, prefixes, roots, path_dirs, True),
+        }
+        if f.path.endswith(".bats"):
+            ctx.targets.add(name = names[f.path], kind = "bats_test", attrs = attrs)
+        else:
+            ctx.targets.add(
+                name = names[f.path],
+                kind = "sh_test",
+                attrs = attrs,
+                symbols = _symbols(_join(ctx.rel, f.path), tree = False),
+            )
+
 aspect.orion_extension(
     id = "gazelle_bash",
     properties = {
+        # How many targets a package's scripts get: "file" (one per file) or "package" (one
+        # sh_library for the libraries and commands, one filegroup for bash_data_files; tests
+        # keep one target each), eg
+        #   # gazelle:bash_generation_mode package
+        "bash_generation_mode": aspect.Property(type = "string", default = "file"),
         # Extra variable names that hold "the directory of this script", eg
         #   # gazelle:bash_dir_vars SCRIPT_DIR,HERE
         "bash_dir_vars": aspect.Property(type = "[]string", default = ["SCRIPT_DIR"]),
