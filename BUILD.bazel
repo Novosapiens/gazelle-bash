@@ -2,6 +2,8 @@ load("@aspect_gazelle_prebuilt//:def.bzl", "aspect_gazelle")
 
 # Golden cases are run by //tests/golden:golden_test, not generated in place.
 # gazelle:exclude tests/golden
+# The corpus runner is run by hand and in CI, not through Bazel.
+# gazelle:exclude tests/corpus
 
 exports_files(
     ["shell.axl"],

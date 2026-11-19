@@ -21,3 +21,14 @@ jobs:
       - run: bazel run //:gazelle.check || { echo "BUILD files are stale. Run: bazel run //:gazelle"; exit 1; }
       # Runs the generated targets in the sandbox: proves declared deps are complete.
       - run: bazel test //...
+
+  # Runs the plugin on real open-source shell projects pinned in tests/corpus/projects.txt.
+  corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: bazel-contrib/setup-bazel@0.19.2
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+      - run: tests/corpus/run.sh

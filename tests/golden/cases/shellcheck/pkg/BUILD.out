@@ -13,6 +13,16 @@ sh_library(
 )
 
 sh_library(
+    name = "quoted",
+    srcs = ["quoted.sh"],
+    data = [
+        "//lib:a",
+        "//lib:my lib",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
     name = "user",
     srcs = ["user.sh"],
     data = [

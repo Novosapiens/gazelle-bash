@@ -1,0 +1,5 @@
+filegroup(
+    name = "defaults_file",
+    srcs = ["defaults"],
+    visibility = ["//:__subpackages__"],
+)

@@ -31,7 +31,9 @@ path resolves to the label of whichever target owns that script, in any package.
 A literal path that matches no script fails generation. A path that starts with a `bash_root_vars`
 variable resolves from that variable's directory. A path still containing `$`
 after normalisation is reported and skipped; declare it with a comment instead.
-Lines inside heredocs are not read.
+`source name` with no slash is skipped when no such file sits next to the script, since
+Bash would find it on PATH. Heredoc bodies and multi-line strings are not read, and
+`# gazelle-bash: ignore` makes the plugin skip one line.
 """
 
 _PROVIDER = "shell"
@@ -177,6 +179,36 @@ def _heredoc_starts(line):
             skip_to = j + max(used, 1)
     return found
 
+def _quote_after(line, quote):
+    """Returns the quote state at the end of `line`, given the state at its start.
+
+    The state is "" (not in a string), "'", "\"" or "$'". Comments are not read.
+    """
+    if quote == "" and "'" not in line and "\"" not in line:
+        return ""
+    skip_to = 0
+    for i in range(len(line)):
+        if i < skip_to:
+            continue
+        c = line[i]
+        if quote == "'":
+            if c == "'":
+                quote = ""
+        elif quote == "$'" or quote == "\"":
+            if c == "\\":
+                skip_to = i + 2
+            elif c == quote[-1]:
+                quote = ""
+        elif c == "\\":
+            skip_to = i + 2
+        elif c == "'":
+            quote = "$'" if i > 0 and line[i - 1] == "$" else "'"
+        elif c == "\"":
+            quote = "\""
+        elif c == "#" and (i == 0 or line[i - 1] in " \t;(&|"):
+            break
+    return quote
+
 def _directive(text, prefix):
     """If `text` starts with the word `prefix`, returns the rest, stripped. Otherwise None."""
     if text == prefix:
@@ -186,15 +218,23 @@ def _directive(text, prefix):
     return None
 
 def _scan(content):
-    """Returns [(kind, raw_arg, line_index)] for each dependency line in `content`, outside heredocs.
+    """Returns [(kind, raw_arg, line_index)] for each dependency line in `content`.
 
     kind is one of "source", "load", "dep" (the gazelle-bash comment) or "shellcheck".
-    A heredoc that never closes is treated as a false match and its lines are read normally.
+    For "shellcheck", raw_arg is the path with quoting already removed.
+
+    Not read: heredoc bodies, lines that start inside a multi-line quoted string, and a
+    line marked `# gazelle-bash: ignore` (on the line above, or at its end).
+
+    Both trackers fall back to reading everything if they lose track: a heredoc that never
+    closes is treated as a false match, and so is a string still open at the end of the file.
     """
     lines = content.split("\n")
     skip = {}
     pending = []  # open heredocs: [(delimiter, strip_tabs)]
     body = []  # line indexes of the heredoc bodies in `pending`
+    quote = ""  # quote state at the start of the current line
+    quoted = {}  # line indexes that start inside a quoted string
     for i in range(len(lines)):
         line = lines[i].removesuffix("\r")
         if pending:
@@ -207,17 +247,26 @@ def _scan(content):
                         skip[b] = True
                     body = []
             continue
-        pending.extend(_heredoc_starts(line))
+        if quote:
+            quoted[i] = True
+        if quote != "'" and quote != "$'":
+            pending.extend(_heredoc_starts(line))
+        quote = _quote_after(line, quote)
+    if quote:
+        quoted = {}
 
     found = []
+    ignored = {}  # line indexes marked `# gazelle-bash: ignore`
     for i in range(len(lines)):
-        if i in skip:
+        if i in skip or i in quoted:
             continue
         s = lines[i].strip()
         if s.startswith("#"):
             text = s.lstrip("#").strip()
             gb = _directive(text, "gazelle-bash:")
             if gb != None:
+                if gb == "ignore":
+                    ignored[i + 1] = True
                 arg = _directive(gb, "dep")
                 if arg:
                     found.append(("dep", arg, i))
@@ -230,9 +279,13 @@ def _scan(content):
                 continue
             sc = _directive(text, "shellcheck")
             if sc != None:
-                for tok in sc.split(" "):
-                    if tok.startswith("source="):
-                        found.append(("shellcheck", tok[len("source="):], i))
+                at = sc.find("source=")
+                if at == 0 or (at > 0 and sc[at - 1] in " \t"):
+                    word = _word(sc[at + len("source="):])[0]
+                    if word:
+                        found.append(("shellcheck", word, i))
+            continue
+        if i in ignored or s.endswith("# gazelle-bash: ignore"):
             continue
         for keyword, kind in (("source", "source"), (".", "source"), ("load", "load")):
             arg = _directive(s, keyword)
@@ -528,7 +581,7 @@ def _imports(ctx, file, prefixes, roots, is_test):
         if kind == "dep" or kind == "shellcheck":
             covered[line + 1] = True
     for kind, raw, line in scanned:
-        word = _first_word(raw)
+        word = raw if kind == "shellcheck" else _first_word(raw)
         if kind == "load":
             if not is_bats:
                 continue
@@ -546,8 +599,16 @@ def _imports(ctx, file, prefixes, roots, is_test):
                 resolved = _resolve(word.removeprefix("SCRIPTDIR/"), script_dir, prefixes, roots)
             else:
                 resolved = _resolve(word, shellcheck_base, prefixes, roots)
+                if resolved == None and word.startswith("../"):
+                    # Escapes the workspace root, so it was written relative to the script.
+                    resolved = _resolve(word, script_dir, prefixes, roots)
         else:
             resolved = _resolve(word, script_dir, prefixes, roots)
+            if resolved != None and "/" not in word and not ctx.has_file(_join(path.dirname(file.path), word)):
+                # Bash looks up a bare name on PATH before the current directory.
+                if line not in covered:
+                    print("gazelle-bash: %s:%d: skipped source of %s: no such file next to the script, so Bash finds it on PATH" % (file_path, line + 1, word))
+                continue
 
         if resolved == None:
             if line not in covered:

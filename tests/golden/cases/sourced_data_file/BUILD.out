@@ -1,0 +1,19 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+# gazelle:bash_data_files **/*.inc,conf/*
+
+filegroup(
+    name = "math_inc",
+    srcs = ["math.inc"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "user",
+    srcs = ["user.sh"],
+    data = [
+        ":math_inc",
+        "//conf:defaults_file",
+    ],
+    visibility = ["//:__subpackages__"],
+)

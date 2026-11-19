@@ -1,0 +1,2 @@
+user.sh:1: skipped source of virtualenvwrapper.sh: no such file next to the script, so Bash finds it on PATH
+sub/user2.sh:2: skipped source of git-sh-setup: no such file next to the script, so Bash finds it on PATH

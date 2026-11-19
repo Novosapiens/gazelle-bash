@@ -1,0 +1,20 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "lib",
+    srcs = ["lib.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "user",
+    srcs = ["user.sh"],
+    data = [":lib"],
+    visibility = ["//:__subpackages__"],
+)
+
+bats_test(
+    name = "t",
+    srcs = ["t.bats"],
+)

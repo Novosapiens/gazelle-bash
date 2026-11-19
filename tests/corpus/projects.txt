@@ -1,0 +1,28 @@
+# repo | commit | expected result of running the plugin with no configuration
+# ok = generation succeeds and Bazel can analyse every generated target.
+# fail:<text> = generation stops, and its output contains <text>. Each of these needs a
+# setting or a comment in that project; see README.md in this folder.
+Bash-it/bash-it|72ea9e285fe1828977d1cd2bc596b901bcc57440|fail:Import "vendor/github.com/dsifford/yarn-completion/yarn"
+acmesh-official/acme.sh|1a407f07d5ba1af75aac2cff754df5c268408110|ok
+asdf-vm/asdf-nodejs|779c8dc84b3bdab38c2c80622d315c2c3267f74b|ok
+awslabs/git-secrets|7d6b970cbd3c216353cb22b383b70c150140662e|ok
+basherpm/basher|7c3d238ce263856edbb99fee000613c01ba5712d|ok
+bashup/events|c11ca0f424f76707fd0d6c74ad3f34a2584fc229|ok
+bats-core/bats-assert|dc1aa63fbca9f51f63caf5a80258fc9fd41b581a|ok
+bats-core/bats-core|9c153ec126fa6c005dfc6d2a39c04bb81a329e9b|fail:Import "test/fixtures/load/nonexistent.bash"
+bats-core/bats-file|6bee58bec7c2f4aed1a7425ccd4bdc42b4a84599|ok
+bats-core/bats-support|787ac476d4d9d04562a0e0732bf1ba8f751e67a1|ok
+docker/docker-bench-security|154869da6418089decf7e1ab0cfca0e1cdfc5c49|ok
+dokku/dokku|b39ff6c3f92193f0b8c936a555eeaf8342a59b40|ok
+dylanaraps/pure-bash-bible|8c19d0b482b04d8d50fb72b4c5148b41ce605c6d|ok
+kward/shunit2|f39734a3dd56495c2fee1d4b0925bb31082e36d2|fail:Import "examples/math.inc"
+nvm-sh/nvm|ad42d9086090ec3e0c0fed12c74dd7f7f06b7758|ok
+ohmybash/oh-my-bash|94c2977eda06f230aafa9628fcd869123f01896b|ok
+pi-hole/pi-hole|f7c0220e63e753c664a1ec08d42d6b647b86005d|fail:Import "test/libs/bats-support/load.bash"
+pyenv/pyenv|186b350c853042c5b943df053fe1b99a7c81e5a3|ok
+rbenv/rbenv|07e9b1e297a5977298c6aadc9971ae0e9eb7f0dc|ok
+rbenv/ruby-build|b91ffe95bf6350b8fce3170585c442f20b62619f|ok
+scop/bash-completion|7150f4568e320bc14ee8d27afa74148aac007113|ok
+shellspec/shellspec|f2d13f991885ef44e6b54e571e0842222251b111|fail:Import "contrib/.shellspec-docker/initrc"
+testssl/testssl.sh|3edc35192d98694bbb65eab1a9df00ef44361dbf|ok
+tj/git-extras|44c1a0705cb1a18d49b85b1cf1aff6c4ffc9e3ee|fail:Import "vendor/bats-all/load.bash"

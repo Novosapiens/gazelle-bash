@@ -5,3 +5,9 @@ sh_library(
     srcs = ["a.sh"],
     visibility = ["//:__subpackages__"],
 )
+
+sh_library(
+    name = "my lib",
+    srcs = ["my lib.sh"],
+    visibility = ["//:__subpackages__"],
+)
