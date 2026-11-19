@@ -2,7 +2,7 @@
 
 module(
     name = "gazelle_bash",
-    version = "0.1.1",
+    version = "0.2.0",
 )
 
 # Prebuilt Gazelle with Orion; runs shell.axl with no Go toolchain.
