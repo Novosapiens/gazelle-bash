@@ -1,0 +1,25 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Used by gazelle_bash() in //:defs.bzl. Written by hand: //:gazelle excludes this directory.
+exports_files(
+    [
+        "prune_stale.sh",
+        "run_gazelle.sh",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+sh_test(
+    name = "prune_test",
+    size = "small",
+    srcs = ["prune_test.sh"],
+    data = [
+        "prune_stale.sh",
+        "@buildozer",
+    ],
+    env = {
+        "BUILDOZER": "$(rlocationpath @buildozer)",
+        "PRUNE": "$(rlocationpath prune_stale.sh)",
+    },
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)

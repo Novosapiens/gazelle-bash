@@ -1,12 +1,50 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_library.bzl", "sh_library")
 
+# gazelle:bash_data_files *.md
+# gazelle:exclude excluded
+
+# Deleted, but each of these survives.
+sh_binary(
+    name = "hand_binary",
+    srcs = ["gone_binary.sh"],
+)
+
+# keep
 sh_library(
-    name = "deleted",
-    srcs = ["deleted.sh"],
+    name = "kept_by_comment",
+    srcs = ["gone_kept.sh"],
+)
+
+filegroup(
+    name = "globbed",
+    srcs = glob(["*.txt"]),
+)
+
+filegroup(
+    name = "labelled",
+    srcs = ["//other:gone.sh"],
+)
+
+genrule(
+    name = "make_generated",
+    outs = ["generated.sh"],
+    cmd = "touch $@",
+)
+
+sh_library(
+    name = "from_genrule",
+    srcs = ["generated.sh"],
 )
 
 sh_library(
     name = "kept",
     srcs = ["kept.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "new",
+    srcs = ["new.sh"],
     visibility = ["//:__subpackages__"],
 )

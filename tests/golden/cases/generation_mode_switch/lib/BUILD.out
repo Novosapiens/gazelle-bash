@@ -1,15 +1,17 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_library.bzl", "sh_library")
 
-sh_library(
-    name = "a",
-    srcs = ["a.sh"],
-    visibility = ["//:__subpackages__"],
-)
-
+# keep
 sh_library(
     name = "b",
     srcs = ["b.sh"],
     visibility = ["//:__subpackages__"],
+)
+
+sh_binary(
+    name = "c",
+    srcs = ["c.sh"],
 )
 
 sh_library(
@@ -17,6 +19,13 @@ sh_library(
     srcs = [
         "a.sh",
         "b.sh",
+        "c.sh",
     ],
     visibility = ["//:__subpackages__"],
+)
+
+bats_test(
+    name = "lib_bats",
+    srcs = ["lib.bats"],
+    data = [":lib"],
 )

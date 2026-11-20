@@ -1,0 +1,8 @@
+load("//tests:defs.bzl", "my_bats_test")
+
+# gazelle:map_kind bats_test my_bats_test //tests:defs.bzl
+
+my_bats_test(
+    name = "gone",
+    srcs = ["gone.bats"],
+)

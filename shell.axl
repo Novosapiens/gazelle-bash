@@ -11,6 +11,9 @@ Started from aspect-starters/shell `.aspect/gazelle/shell.axl` (Apache-2.0), the
     `# gazelle:bats_data`) and `# shellcheck source=<path>` declare a dependency that
     cannot be read statically.
 
+Targets of deleted files are removed by `wrapper/prune_stale.sh`, which `gazelle_bash()` in
+`defs.bzl` runs before Gazelle: Orion doesn't show this extension the existing BUILD file.
+
 Generation rules:
 
   | Input                                  | Output                 |
@@ -855,6 +858,19 @@ def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs)
             ))
         taken[name] = f.path
         names[f.path] = name
+
+    # The targets `file` mode gave these files are stale once the package holds them: remove
+    # them, so switching a directory needs no hand cleanup. Orion removes only rules of a kind
+    # this extension registered and never a rule marked `# keep`.
+    file_names = _target_names(scripts + bats)
+    stale = [file_names[f.path] for f in libs]
+    stale += [file_names[f.path] for f in tests if file_names[f.path] != names[f.path]]
+    stale += [_data_name(p) for p in data_files]
+    # A file-mode test that held the library's name (`lib.bats` in `lib/`) is left to the prune
+    # step in //:defs.bzl: removing a name here and adding it again in one run deletes it.
+    for name in stale:
+        if name not in taken:
+            ctx.targets.remove(name)
 
     if data_files:
         ctx.targets.add(
