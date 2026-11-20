@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Tests prune_stale.sh on its own: what the golden cases, which run it in fix mode through
+# //:gazelle, don't cover.
+
+# --- begin runfiles.bash initialization v3 ---
+set -uo pipefail; set +e; f=bazel_tools/tools/bash/runfiles/runfiles.bash
+# shellcheck disable=SC1090
+source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "${RUNFILES_MANIFEST_FILE:-/dev/null}" | cut -f2- -d' ')" 2>/dev/null || \
+  source "$0.runfiles/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.runfiles_manifest" | cut -f2- -d' ')" 2>/dev/null || \
+  { echo>&2 "ERROR: cannot find $f"; exit 1; }; f=; set -e
+# --- end runfiles.bash initialization v3 ---
+runfiles_export_envvars
+set +e  # check mode exits 1 on purpose
+
+prune="$(rlocation "$PRUNE")"
+buildozer="$(rlocation "$BUILDOZER")"
+failed=0
+
+fail() { echo "FAIL: $*"; failed=1; }
+
+# new_ws <dir>: an empty workspace; write BUILD files into it afterwards.
+new_ws() { rm -rf "$1"; mkdir -p "$1"; : >"$1/MODULE.bazel"; }
+
+stale_lib() {  # <BUILD file> <name> <src>
+    mkdir -p "$(dirname "$1")"
+    printf 'sh_library(\n    name = "%s",\n    srcs = ["%s"],\n)\n\n' "$2" "$3" >>"$1"
+}
+
+run() {  # <workspace> <mode> [dir...]: sets out and code
+    local ws="$1"
+    shift
+    out="$(cd "$ws" && BUILD_WORKING_DIRECTORY="$ws" "$prune" "$buildozer" "$@" 2>&1)"
+    code=$?
+}
+
+ws="$TEST_TMPDIR/check"
+new_ws "$ws"
+stale_lib "$ws/a/BUILD.bazel" gone gone.sh
+before="$(cat "$ws/a/BUILD.bazel")"
+run "$ws" check
+[[ $code -eq 1 ]] || fail "check: exit $code, want 1"
+[[ "$out" == *"stale target //a:gone: its files are gone: gone.sh"* ]] || fail "check: output lacks the target: $out"
+[[ "$(cat "$ws/a/BUILD.bazel")" == "$before" ]] || fail "check: changed the BUILD file"
+
+run "$ws" fix
+[[ $code -eq 0 ]] || fail "fix: exit $code: $out"
+grep -q '"gone"' "$ws/a/BUILD.bazel" && fail "fix: //a:gone is still there"
+run "$ws" check
+[[ $code -eq 0 ]] || fail "check after fix: exit $code: $out"
+
+ws="$TEST_TMPDIR/dirs"
+new_ws "$ws"
+stale_lib "$ws/a/BUILD.bazel" gone gone.sh
+stale_lib "$ws/b/BUILD.bazel" gone gone.sh
+run "$ws" check a
+[[ "$out" == *"//a:gone"* && "$out" != *"//b:gone"* ]] || fail "dirs: want only //a:gone, got: $out"
+
+ws="$TEST_TMPDIR/spaces"
+new_ws "$ws"
+mkdir -p "$ws/a"
+: >"$ws/a/my file.sh"
+stale_lib "$ws/a/BUILD.bazel" spaced "my file.sh"
+stale_lib "$ws/a/BUILD.bazel" spaced_gone "other file.sh"
+run "$ws" check
+[[ $code -eq 0 ]] || fail "spaces: a name with a space must never count as stale: $out"
+
+if command -v git >/dev/null; then
+    ws="$TEST_TMPDIR/git"
+    new_ws "$ws"
+    stale_lib "$ws/a/BUILD.bazel" gone gone.sh
+    stale_lib "$ws/ignored/BUILD.bazel" gone gone.sh
+    echo ignored/ >"$ws/.gitignore"
+    git -C "$ws" init -q
+    run "$ws" check
+    [[ "$out" == *"//a:gone"* && "$out" != *"//ignored:gone"* ]] || fail "git: want only //a:gone, got: $out"
+fi
+
+((failed == 0)) && echo PASS
+exit $failed

@@ -28,15 +28,18 @@ git_override(  # until gazelle_bash is on the Bazel Central Registry
 Root `BUILD.bazel`:
 
 ```starlark
-load("@aspect_gazelle_prebuilt//:def.bzl", "aspect_gazelle")
+load("@gazelle_bash//:defs.bzl", "gazelle_bash")
 
-aspect_gazelle(
+gazelle_bash(
     name = "gazelle",
     languages = [],  # or the built-in languages you already use, eg ["python"]
-    extensions = ["@gazelle_bash//:shell.axl"],
     with_check = True,
 )
 ```
+
+`gazelle_bash()` is Aspect's `aspect_gazelle()` with `shell.axl` loaded, plus a step that removes the
+targets of deleted files (see "Deleted and renamed files"). It takes the same arguments: add other Orion
+extensions with `extensions`.
 
 Run it:
 
@@ -44,6 +47,8 @@ Run it:
 bazel run //:gazelle        # write BUILD files
 bazel run //:gazelle.check  # CI: fail if any BUILD file is stale
 ```
+
+`aspect_gazelle(extensions = ["@gazelle_bash//:shell.axl"])` still works, without removing stale targets.
 
 `gazelle.check` prints the diff and exits 1, but doesn't say how to fix it. In CI, add the command:
 
@@ -135,8 +140,34 @@ The trade-offs:
 - **Coarser targets can form a cycle.** If `a/x.sh` sources `b/y.sh` and `b/z.sh` sources `a/w.sh`, the
   files don't form a cycle but the two directory targets do, and Bazel rejects it. Move a file or put
   `# gazelle-bash: ignore` on one direction.
-- **Switching an existing directory keeps its old per-file targets.** See Limits. Delete them by hand
-  after the first run.
+
+Switching an existing directory to `package` removes its per-file targets in the same run, unless they
+have `# keep`.
+
+## Deleted and renamed files
+
+Before Gazelle runs, `gazelle_bash()` removes a target whose files are all gone. A rule is removed when:
+
+- its kind is one this extension generates (`sh_library`, `sh_test`, `bats_test`, `filegroup`), or one
+  a `# gazelle:map_kind` maps them to;
+- its `srcs` is a list of plain file names in its own package, and none of those files exists;
+- no rule in the package is named after one of those files or lists it in `outs`, so a genrule's output
+  is not mistaken for a deleted file;
+- neither the rule nor a comment line directly above it says `# keep`.
+
+A rule with a `glob()`, a label or a subdirectory path in `srcs` is never removed, nor is a rule of any
+other kind, such as a hand-written `sh_binary`. Directories Gazelle skips (`# gazelle:exclude`, files
+git ignores, `# gazelle:gazelle_bash disabled`) are skipped too. Each removal is printed:
+
+```
+gazelle-bash: removed //tools:old: its files are gone: old.sh
+```
+
+`gazelle.check` doesn't change anything: it lists the stale targets and fails, so CI catches a deleted
+script before `bazel build` does. `bazel run //:gazelle -- some/dir` limits the step to that directory, as
+it limits Gazelle.
+
+A rule left with only some of its files is not removed: Gazelle updates its `srcs`.
 
 ## Dependencies
 
@@ -305,11 +336,14 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 
 ## Limits
 
-- **Deleting or renaming a script leaves its old target behind.** `bazel build` then fails on the missing
-  file. Delete the target by hand. Orion only removes targets an extension names, and it doesn't show
-  extensions the existing BUILD file. The golden case `stale_target` pins this until Orion supports it.
-  For the same reason, switching a directory to `bash_generation_mode package` keeps its per-file targets
-  next to the new one (golden case `generation_mode_switch`).
+- **Stale targets are removed only through `gazelle_bash()`.** Orion doesn't show an extension the
+  existing BUILD file, so the removal runs as a separate step before Gazelle, using
+  [buildozer](https://github.com/bazelbuild/buildtools/tree/main/buildozer). With plain
+  `aspect_gazelle()`, delete the target of a deleted script by hand.
+- **A deleted file whose name holds a space, quote or backslash keeps its target.** buildozer prints a
+  `srcs` list without quotes, so such a name can't be told apart reliably; the step leaves the rule alone.
+- **A hand-written `filegroup` (or other generated kind) whose listed files are all gone is removed.**
+  Bazel couldn't build it anyway. Add `# keep` to keep it.
 - **Commands on `PATH`** (`git`, `jq`, `gh`) are not tracked. Tests use whatever the machine has.
 - **Only lines that start with `source`, `.` or `load` are read.** A `source` after `then`, `&&` or `;` on
   the same line is missed. Use a comment for those.
@@ -356,7 +390,8 @@ the declared dependencies are complete, because an undeclared file is not in the
 | `shared_settings` | `map_kind` sends bats tests through a macro that supplies an env value, in the package and below it |
 | `package_mode` | With `bash_generation_mode package`, one library target holds a script and the sibling it sources, and tests inside and outside the package pass with only that target |
 
-**Golden cases** (`tests/golden/cases/*`) are small workspaces that the real prebuilt Gazelle runs on.
+**Golden cases** (`tests/golden/cases/*`) are small workspaces that the real prebuilt Gazelle runs on,
+through `//:gazelle`, so the stale-target step runs first.
 They cover what a live fixture can't: generation errors, BUILD files that exist beforehand, and inputs
 that would break the repo's own generation. Each case can hold:
 
@@ -376,7 +411,7 @@ that would break the repo's own generation. Each case can hold:
 | `shellcheck` | `source=` (workspace- and script-relative), `SCRIPTDIR/`, `../`, a quoted path with a space, `/dev/null`, combined directives |
 | `source_shebang` | A sourced script with a shebang is an `sh_library` referenced through `data` |
 | `hand_edits` | Hand-added attributes and targets survive regeneration |
-| `stale_target` | Known limit: a target for a deleted file is kept |
+| `stale_target` | Targets of deleted and renamed files are removed: `sh_library`, `bats_test`, a data `filegroup`, a mapped kind. A hand-written `sh_binary`, `# keep`, a `glob()`, a label and a genrule's output survive, and so do excluded and disabled directories |
 | `data_refs` | References in tests: files, directories, wildcards, comments, escapes, paths made at run time; `bash_data_files` filegroups; a hand-written filegroup survives; the glob forms of the comment |
 | `disabled` | `# gazelle:gazelle_bash disabled` turns it off for a subtree only |
 | `path_dirs` | Commands run by bare name: after `run` and its options, `\|`, `&&`, `;`, `!`, `$( )`, assignments and `if`; a `.sh` command; two directories; not builtins, arguments, comments, system commands or libraries |
@@ -388,7 +423,7 @@ that would break the repo's own generation. Each case can hold:
 | `sourced_data_file` | A sourced non-script file resolves once `bash_data_files` names it |
 | `generation_mode` | `bash_generation_mode package`: one library and one filegroup per directory; no self-dependency from a sibling `source` or a `dep ./`; a test named after its directory; `root` at the workspace root; inherited by a subpackage; `file` in a subpackage restores per-file targets |
 | `generation_mode_add` | In `package` mode, a new file adds one line to the existing target's `srcs`, and hand-added attributes survive |
-| `generation_mode_switch` | Known limit: switching a directory to `package` mode keeps its per-file targets |
+| `generation_mode_switch` | Switching a directory to `package` mode removes its per-file targets, keeps one with `# keep` and a hand-written `sh_binary`, and replaces a test that held the package's name |
 | `generation_mode_invalid` | An unknown `bash_generation_mode` value fails generation with a clear error |
 
 ```sh
@@ -397,6 +432,10 @@ bazel run //tests/golden:golden_test -- heredoc       # run one case
 ```
 
 Review the `git diff` after `--update`. It records whatever the plugin did, right or wrong.
+
+**The stale-target step on its own** is tested by `//wrapper:prune_test`: check mode reports without
+changing anything, a second run finds nothing, directory arguments limit it, git-ignored directories are
+skipped, and a file name with a space never counts as deleted.
 
 **The corpus** ([tests/corpus](tests/corpus)) runs the plugin on 24 open-source shell projects pinned to
 a commit, about 3,800 scripts and bats files. For each it checks that generation gives the recorded result

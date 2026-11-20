@@ -1,6 +1,63 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_library.bzl", "sh_library")
 
+# gazelle:bash_data_files *.md
+# gazelle:exclude excluded
+
+# Deleted: removed.
 sh_library(
     name = "deleted",
     srcs = ["deleted.sh"],
+)
+
+bats_test(
+    name = "deleted_bats",
+    srcs = ["deleted_bats.bats"],
+)
+
+filegroup(
+    name = "GONE_md",
+    srcs = ["GONE.md"],
+    visibility = ["//:__subpackages__"],
+)
+
+# Renamed to new.sh: removed, and `new` is added.
+sh_library(
+    name = "old",
+    srcs = ["old.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+# Deleted, but each of these survives.
+sh_binary(
+    name = "hand_binary",
+    srcs = ["gone_binary.sh"],
+)
+
+# keep
+sh_library(
+    name = "kept_by_comment",
+    srcs = ["gone_kept.sh"],
+)
+
+filegroup(
+    name = "globbed",
+    srcs = glob(["*.txt"]),
+)
+
+filegroup(
+    name = "labelled",
+    srcs = ["//other:gone.sh"],
+)
+
+genrule(
+    name = "make_generated",
+    outs = ["generated.sh"],
+    cmd = "touch $@",
+)
+
+sh_library(
+    name = "from_genrule",
+    srcs = ["generated.sh"],
 )

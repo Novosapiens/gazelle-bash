@@ -12,3 +12,6 @@ bazel_dep(name = "aspect_gazelle_prebuilt", version = "0.0.29")
 # Rules the generated targets use. Host repos need these too.
 bazel_dep(name = "rules_shell", version = "0.10.0")
 bazel_dep(name = "bazel_lib", version = "3.8.0")
+
+# Prebuilt buildozer; the gazelle wrapper uses it to remove targets whose files were deleted.
+bazel_dep(name = "buildozer", version = "10.1.0.bcr.1")

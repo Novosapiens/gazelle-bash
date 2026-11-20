@@ -1,0 +1,8 @@
+# gazelle:gazelle_bash disabled
+
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "gone",
+    srcs = ["gone.sh"],
+)

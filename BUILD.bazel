@@ -1,22 +1,25 @@
-load("@aspect_gazelle_prebuilt//:def.bzl", "aspect_gazelle")
+load("//:defs.bzl", "gazelle_bash")
 
 # Golden cases are run by //tests/golden:golden_test, not generated in place.
 # gazelle:exclude tests/golden
 # The corpus runner is run by hand and in CI, not through Bazel.
 # gazelle:exclude tests/corpus
+# The scripts gazelle_bash() runs are not fixtures.
+# gazelle:exclude wrapper
 
 exports_files(
-    ["shell.axl"],
+    [
+        "shell.axl",
+        "defs.bzl",
+    ],
     visibility = ["//visibility:public"],
 )
 
 # Regenerates the BUILD files under tests/ from the fixtures.
 #   bazel run //:gazelle        - update BUILD files
 #   bazel run //:gazelle.check  - fail if any BUILD file is stale (CI)
-aspect_gazelle(
+gazelle_bash(
     name = "gazelle",
-    extensions = [":shell.axl"],
-    languages = [],
     visibility = ["//tests:__subpackages__"],
     with_check = True,
 )

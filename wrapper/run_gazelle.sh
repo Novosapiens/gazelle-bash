@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Runs prune_stale.sh, then the aspect_gazelle runner it wraps. A template: gazelle_bash()
+# in //:defs.bzl fills in the @@...@@ values.
+#
+#   bazel run //:gazelle [-- gazelle args...]
+#
+# In check mode, both still run, so the output shows the stale targets and the BUILD diff
+# together; it fails if either finds something.
+
+# --- begin runfiles.bash initialization v3 ---
+set -uo pipefail; set +e; f=bazel_tools/tools/bash/runfiles/runfiles.bash
+# shellcheck disable=SC1090
+source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "${RUNFILES_MANIFEST_FILE:-/dev/null}" | cut -f2- -d' ')" 2>/dev/null || \
+  source "$0.runfiles/$f" 2>/dev/null || \
+  source "$(grep -sm1 "^$f " "$0.runfiles_manifest" | cut -f2- -d' ')" 2>/dev/null || \
+  { echo>&2 "ERROR: cannot find $f"; exit 1; }; f=; set -e
+# --- end runfiles.bash initialization v3 ---
+runfiles_export_envvars
+
+if [[ -z "${BUILD_WORKSPACE_DIRECTORY:-}" ]]; then
+    echo "error: run this with bazel run" >&2
+    exit 1
+fi
+
+mode="@@MODE@@"
+buildozer="$(rlocation "@@BUILDOZER@@")"
+runner="$(rlocation "@@RUNNER@@")"
+prune="$(rlocation "@@PRUNE@@")"
+
+# Arguments that name a directory limit the prune, as they limit Gazelle.
+dirs=()
+for arg in "$@"; do
+    [[ "$arg" != -* && -d "$BUILD_WORKSPACE_DIRECTORY/$arg" ]] && dirs+=("$arg")
+done
+
+set +e
+(
+    cd "$BUILD_WORKSPACE_DIRECTORY" &&
+        BUILD_WORKING_DIRECTORY="$BUILD_WORKSPACE_DIRECTORY" \
+            "$prune" "$buildozer" "$mode" ${dirs[@]+"${dirs[@]}"}
+)
+pruned=$?
+set -e
+if [[ $pruned -ne 0 && "$mode" == "fix" ]]; then
+    exit $pruned
+fi
+
+# Gazelle runs from this script's runfiles directory, where the extensions' paths point.
+set +e
+"$runner" "$@"
+generated=$?
+set -e
+((pruned == 0)) || exit $pruned
+exit $generated
