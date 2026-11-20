@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Runs prune_stale.sh, then the aspect_gazelle runner it wraps. A template: gazelle_bash()
-# in //:defs.bzl fills in the @@...@@ values.
+# Runs prune_stale.sh, then the aspect_gazelle runner it wraps, then sort_rules.sh. A
+# template: gazelle_bash() in //:defs.bzl fills in the @@...@@ values.
 #
 #   bazel run //:gazelle [-- gazelle args...]
 #
-# In check mode, both still run, so the output shows the stale targets and the BUILD diff
-# together; it fails if either finds something.
+# In check mode, all three still run, so the output shows the stale targets, the BUILD diff
+# and the rules out of order together; it fails if any finds something.
 
 # --- begin runfiles.bash initialization v3 ---
 set -uo pipefail; set +e; f=bazel_tools/tools/bash/runfiles/runfiles.bash
@@ -27,19 +27,25 @@ mode="@@MODE@@"
 buildozer="$(rlocation "@@BUILDOZER@@")"
 runner="$(rlocation "@@RUNNER@@")"
 prune="$(rlocation "@@PRUNE@@")"
+sort_rules="$(rlocation "@@SORT@@")"
 
-# Arguments that name a directory limit the prune, as they limit Gazelle.
+# Arguments that name a directory limit the prune and the sort, as they limit Gazelle.
 dirs=()
 for arg in "$@"; do
     [[ "$arg" != -* && -d "$BUILD_WORKSPACE_DIRECTORY/$arg" ]] && dirs+=("$arg")
 done
 
+# step <script>: runs a step from the workspace root; prints its exit code.
+step() {
+    (
+        cd "$BUILD_WORKSPACE_DIRECTORY" &&
+            BUILD_WORKING_DIRECTORY="$BUILD_WORKSPACE_DIRECTORY" \
+                "$1" "$buildozer" "$mode" ${dirs[@]+"${dirs[@]}"}
+    )
+}
+
 set +e
-(
-    cd "$BUILD_WORKSPACE_DIRECTORY" &&
-        BUILD_WORKING_DIRECTORY="$BUILD_WORKSPACE_DIRECTORY" \
-            "$prune" "$buildozer" "$mode" ${dirs[@]+"${dirs[@]}"}
-)
+step "$prune"
 pruned=$?
 set -e
 if [[ $pruned -ne 0 && "$mode" == "fix" ]]; then
@@ -51,5 +57,14 @@ set +e
 "$runner" "$@"
 generated=$?
 set -e
+if [[ $generated -ne 0 && "$mode" == "fix" ]]; then
+    exit $generated
+fi
+
+set +e
+step "$sort_rules"
+sorted=$?
+set -e
 ((pruned == 0)) || exit $pruned
-exit $generated
+((generated == 0)) || exit $generated
+exit $sorted

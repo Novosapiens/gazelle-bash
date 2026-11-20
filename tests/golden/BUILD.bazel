@@ -9,5 +9,9 @@ sh_test(
         "//:gazelle",
         "//:shell.axl",
     ] + glob(["cases/**"]),
+    env = {
+        "AXL": "$(rlocationpath //:shell.axl)",
+        "GAZELLE": "$(rlocationpath //:gazelle)",
+    },
     deps = ["@bazel_tools//tools/bash/runfiles"],
 )

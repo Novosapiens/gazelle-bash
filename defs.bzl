@@ -1,8 +1,10 @@
-"""gazelle_bash(): Aspect's prebuilt Gazelle with shell.axl, plus removal of stale targets and
-kind renames for `map_kind`.
+"""gazelle_bash(): Aspect's prebuilt Gazelle with shell.axl, plus removal of stale targets,
+kind renames for `map_kind`, and rules sorted by name.
 
 Orion doesn't show an extension the existing BUILD file, so shell.axl can't remove a target
-whose file was deleted. gazelle_bash() runs a prune step first, which does.
+whose file was deleted, or choose where a new rule goes. gazelle_bash() runs a prune step
+before Gazelle, which removes them, and a sort step after it, which puts each rule at its
+place by name.
 """
 
 load("@aspect_gazelle_prebuilt//:def.bzl", "aspect_gazelle")
@@ -26,9 +28,11 @@ def _runner_impl(ctx):
             "@@BUILDOZER@@": _rlocationpath(ctx, buildozer),
             "@@RUNNER@@": _rlocationpath(ctx, runner),
             "@@PRUNE@@": _rlocationpath(ctx, ctx.file._prune),
+            "@@SORT@@": _rlocationpath(ctx, ctx.file._sort),
         },
     )
-    runfiles = ctx.runfiles(files = [script, ctx.file._prune] + ctx.files._runfiles_lib).merge_all([
+    files = [script, ctx.file._prune, ctx.file._sort, ctx.file._packages] + ctx.files._runfiles_lib
+    runfiles = ctx.runfiles(files = files).merge_all([
         ctx.attr.runner[DefaultInfo].default_runfiles,
         ctx.attr._buildozer[DefaultInfo].default_runfiles,
     ])
@@ -41,8 +45,10 @@ _gazelle_bash_runner = rule(
         "mode": attr.string(values = ["fix", "check"], mandatory = True),
         "runner": attr.label(executable = True, cfg = "target", mandatory = True),
         "_buildozer": attr.label(default = "@buildozer", executable = True, cfg = "target"),
+        "_packages": attr.label(default = "//wrapper:packages.sh", allow_single_file = True),
         "_prune": attr.label(default = "//wrapper:prune_stale.sh", allow_single_file = True),
         "_runfiles_lib": attr.label(default = "@bazel_tools//tools/bash/runfiles"),
+        "_sort": attr.label(default = "//wrapper:sort_rules.sh", allow_single_file = True),
         "_template": attr.label(default = "//wrapper:run_gazelle.sh", allow_single_file = True),
     },
 )
@@ -58,6 +64,11 @@ def gazelle_bash(name = "gazelle", languages = [], extensions = [], with_check =
     of the package that no longer exist. A rule with `# keep` is never removed. Then each rule of
     a kind a `map_kind` maps in its package takes the mapped kind, so adding `map_kind` to a repo
     with generated targets works. `name.check` reports both and fails instead.
+
+    After Gazelle runs, the rules of those kinds in each BUILD file are sorted by name, among
+    the places they hold, so a new rule goes where its name puts it, not at the end. A rule
+    with `# keep` stays where it is. `name.check` fails on a BUILD file whose rules are out of
+    order.
     """
     exts = [_AXL] + [e for e in extensions if native.package_relative_label(e) != _AXL]
     inner = "_%s_orion" % name

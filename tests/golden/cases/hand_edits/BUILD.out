@@ -1,13 +1,13 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
+filegroup(
+    name = "handwritten",
+    srcs = ["ok_test.sh"],
+)
+
 sh_test(
     name = "ok_test",
     size = "small",
     srcs = ["ok_test.sh"],
     tags = ["manual"],
-)
-
-filegroup(
-    name = "handwritten",
-    srcs = ["ok_test.sh"],
 )

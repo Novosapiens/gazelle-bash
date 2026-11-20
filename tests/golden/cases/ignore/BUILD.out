@@ -7,14 +7,14 @@ sh_library(
     visibility = ["//:__subpackages__"],
 )
 
+bats_test(
+    name = "t",
+    srcs = ["t.bats"],
+)
+
 sh_library(
     name = "user",
     srcs = ["user.sh"],
     data = [":lib"],
     visibility = ["//:__subpackages__"],
-)
-
-bats_test(
-    name = "t",
-    srcs = ["t.bats"],
 )
