@@ -1,14 +1,14 @@
 load("@rules_shell//shell:sh_library.bzl", "sh_library")
 
 sh_library(
-    name = "words",
-    srcs = ["words.sh"],
+    name = "greet-tool_bin",
+    srcs = ["greet-tool"],
+    data = [":words"],
     visibility = ["//:__subpackages__"],
 )
 
 sh_library(
-    name = "greet-tool_bin",
-    srcs = ["greet-tool"],
-    data = [":words"],
+    name = "words",
+    srcs = ["words.sh"],
     visibility = ["//:__subpackages__"],
 )

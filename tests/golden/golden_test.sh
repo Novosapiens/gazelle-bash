@@ -26,9 +26,10 @@ source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null || \
 # --- end runfiles.bash initialization v3 ---
 runfiles_export_envvars
 
-gazelle="$(rlocation _main/gazelle.sh)"
-axl="$(rlocation _main/shell.axl)"
-cases_root="$(dirname "$(rlocation _main/tests/golden/golden_test.sh)")/cases"
+# From the BUILD file's env, so the test also runs as @gazelle_bash//tests/golden:golden_test.
+gazelle="$(rlocation "$GAZELLE")"
+axl="$(rlocation "$AXL")"
+cases_root="$(dirname "$axl")/tests/golden/cases"
 
 update=0
 only=()
@@ -42,7 +43,10 @@ if [[ $update -eq 1 && -z "${BUILD_WORKSPACE_DIRECTORY:-}" ]]; then
     echo "--update needs bazel run" >&2
     exit 2
 fi
-src_root="${BUILD_WORKSPACE_DIRECTORY:-}/tests/golden/cases"
+# The checkout the runfiles link to: this workspace, or a local_path_override of gazelle_bash.
+src="$axl"
+while [[ -L "$src" ]]; do src="$(readlink "$src")"; done
+src_root="$(cd "$(dirname "$src")" && pwd -P)/tests/golden/cases"
 tmp="${TEST_TMPDIR:-$(mktemp -d)}"
 
 if [[ ${#only[@]} -eq 0 ]]; then

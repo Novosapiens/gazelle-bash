@@ -1,11 +1,11 @@
-# Hand-written; must survive.
-filegroup(
-    name = "everything",
-    srcs = glob(["**"]),
-)
-
 filegroup(
     name = "GUIDE_md",
     srcs = ["GUIDE.md"],
     visibility = ["//:__subpackages__"],
+)
+
+# Hand-written; must survive.
+filegroup(
+    name = "everything",
+    srcs = glob(["**"]),
 )

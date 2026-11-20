@@ -70,6 +70,15 @@ sh_library(
     visibility = ["//:__subpackages__"],
 )
 
+bats_test(
+    name = "tool_bats",
+    srcs = ["tool.bats"],
+    data = [
+        ":h2",
+        "//sub:helper",
+    ],
+)
+
 sh_library(
     name = "tool_sh",
     srcs = ["tool.sh"],
@@ -81,13 +90,4 @@ sh_library(
     srcs = ["trailing_comment.sh"],
     data = [":lib"],
     visibility = ["//:__subpackages__"],
-)
-
-bats_test(
-    name = "tool_bats",
-    srcs = ["tool.bats"],
-    data = [
-        ":h2",
-        "//sub:helper",
-    ],
 )

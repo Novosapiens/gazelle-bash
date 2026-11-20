@@ -2,13 +2,10 @@ load("@bazel_lib//lib:bats.bzl", "bats_test")
 load("@rules_shell//shell:sh_library.bzl", "sh_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
-filegroup(
-    name = "util_files",
-    srcs = [
-        "more.txt",
-        "notes.txt",
-    ],
-    visibility = ["//:__subpackages__"],
+sh_test(
+    name = "b_test",
+    srcs = ["b_test.sh"],
+    data = [":util"],
 )
 
 sh_library(
@@ -27,12 +24,6 @@ sh_library(
     visibility = ["//:__subpackages__"],
 )
 
-sh_test(
-    name = "b_test",
-    srcs = ["b_test.sh"],
-    data = [":util"],
-)
-
 bats_test(
     name = "util_bats",
     srcs = ["util.bats"],
@@ -40,4 +31,13 @@ bats_test(
         ":util",
         ":util_files",
     ],
+)
+
+filegroup(
+    name = "util_files",
+    srcs = [
+        "more.txt",
+        "notes.txt",
+    ],
+    visibility = ["//:__subpackages__"],
 )

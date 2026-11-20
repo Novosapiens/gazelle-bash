@@ -2,7 +2,7 @@
 
 module(
     name = "gazelle_bash",
-    version = "0.4.1",
+    version = "0.5.0",
 )
 
 # Prebuilt Gazelle with Orion; runs shell.axl with no Go toolchain.
@@ -13,5 +13,6 @@ bazel_dep(name = "aspect_gazelle_prebuilt", version = "0.0.29")
 bazel_dep(name = "rules_shell", version = "0.10.0")
 bazel_dep(name = "bazel_lib", version = "3.8.0")
 
-# Prebuilt buildozer; the gazelle wrapper uses it to remove targets whose files were deleted.
+# Prebuilt buildozer; the gazelle wrapper uses it to remove targets whose files were deleted
+# and to sort rules by name.
 bazel_dep(name = "buildozer", version = "10.1.0.bcr.1")

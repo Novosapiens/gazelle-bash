@@ -16,14 +16,14 @@ sh_library(
     srcs = ["gone_kept.sh"],
 )
 
-filegroup(
-    name = "globbed",
-    srcs = glob(["*.txt"]),
+sh_library(
+    name = "from_genrule",
+    srcs = ["generated.sh"],
 )
 
 filegroup(
-    name = "labelled",
-    srcs = ["//other:gone.sh"],
+    name = "globbed",
+    srcs = glob(["*.txt"]),
 )
 
 genrule(
@@ -33,14 +33,14 @@ genrule(
 )
 
 sh_library(
-    name = "from_genrule",
-    srcs = ["generated.sh"],
-)
-
-sh_library(
     name = "kept",
     srcs = ["kept.sh"],
     visibility = ["//:__subpackages__"],
+)
+
+filegroup(
+    name = "labelled",
+    srcs = ["//other:gone.sh"],
 )
 
 sh_library(

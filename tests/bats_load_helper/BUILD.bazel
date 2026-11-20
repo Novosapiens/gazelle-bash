@@ -1,14 +1,14 @@
 load("@bazel_lib//lib:bats.bzl", "bats_test")
 load("@rules_shell//shell:sh_library.bzl", "sh_library")
 
-sh_library(
-    name = "helper",
-    srcs = ["helper.bash"],
-    visibility = ["//:__subpackages__"],
-)
-
 bats_test(
     name = "double",
     srcs = ["double.bats"],
     data = [":helper"],
+)
+
+sh_library(
+    name = "helper",
+    srcs = ["helper.bash"],
+    visibility = ["//:__subpackages__"],
 )

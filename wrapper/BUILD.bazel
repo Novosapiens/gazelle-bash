@@ -3,8 +3,10 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 # Used by gazelle_bash() in //:defs.bzl. Written by hand: //:gazelle excludes this directory.
 exports_files(
     [
+        "packages.sh",
         "prune_stale.sh",
         "run_gazelle.sh",
+        "sort_rules.sh",
     ],
     visibility = ["//visibility:public"],
 )
@@ -14,12 +16,29 @@ sh_test(
     size = "small",
     srcs = ["prune_test.sh"],
     data = [
+        "packages.sh",
         "prune_stale.sh",
         "@buildozer",
     ],
     env = {
         "BUILDOZER": "$(rlocationpath @buildozer)",
         "PRUNE": "$(rlocationpath prune_stale.sh)",
+    },
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
+
+sh_test(
+    name = "sort_test",
+    size = "small",
+    srcs = ["sort_test.sh"],
+    data = [
+        "packages.sh",
+        "sort_rules.sh",
+        "@buildozer",
+    ],
+    env = {
+        "BUILDOZER": "$(rlocationpath @buildozer)",
+        "SORT": "$(rlocationpath sort_rules.sh)",
     },
     deps = ["@bazel_tools//tools/bash/runfiles"],
 )

@@ -17,11 +17,11 @@ bazel_dep(name = "aspect_gazelle_prebuilt", version = "0.0.29")
 bazel_dep(name = "rules_shell", version = "0.10.0")
 bazel_dep(name = "bazel_lib", version = "3.8.0")
 
-bazel_dep(name = "gazelle_bash", version = "0.4.1")
+bazel_dep(name = "gazelle_bash", version = "0.5.0")
 git_override(  # until gazelle_bash is on the Bazel Central Registry
     module_name = "gazelle_bash",
     remote = "https://github.com/Novosapiens/gazelle-bash.git",
-    tag = "v0.4.1",
+    tag = "v0.5.0",
 )
 ```
 
@@ -37,9 +37,10 @@ gazelle_bash(
 )
 ```
 
-`gazelle_bash()` is Aspect's `aspect_gazelle()` with `shell.axl` loaded, plus a step that removes the
-targets of deleted files (see "Deleted and renamed files"). It takes the same arguments: add other Orion
-extensions with `extensions`.
+`gazelle_bash()` is Aspect's `aspect_gazelle()` with `shell.axl` loaded, plus a step before it that
+removes the targets of deleted files (see "Deleted and renamed files") and one after it that sorts each
+BUILD file's rules by name (see "Rule order"). It takes the same arguments: add other Orion extensions
+with `extensions`.
 
 Run it:
 
@@ -48,7 +49,8 @@ bazel run //:gazelle        # write BUILD files
 bazel run //:gazelle.check  # CI: fail if any BUILD file is stale
 ```
 
-`aspect_gazelle(extensions = ["@gazelle_bash//:shell.axl"])` still works, without removing stale targets.
+`aspect_gazelle(extensions = ["@gazelle_bash//:shell.axl"])` still works, without removing stale targets
+or sorting rules.
 
 `gazelle.check` prints the diff and exits 1, but doesn't say how to fix it. In CI, add the command:
 
@@ -88,9 +90,10 @@ Target names:
 ### One target per directory
 
 One target per file is the default, because Bazel can then skip every test a change cannot reach. The
-cost is a BUILD file that grows one rule block per script. Gazelle adds each new block at the end of the
-file, so two branches that each add a script to the same directory both edit the same place and conflict
-when merged.
+cost is a BUILD file that grows one rule block per script. Through `gazelle_bash()` a new block goes at
+its place by name (see "Rule order"), so two branches that each add a script to the same directory
+conflict only when the scripts' names sort next to each other; without it, every new block goes at the
+end of the file, and they always conflict.
 
 To get one target per directory instead, as Go's `go_library` and rules_python's
 `python_generation_mode package` do, set:
@@ -168,6 +171,27 @@ script before `bazel build` does. `bazel run //:gazelle -- some/dir` limits the 
 it limits Gazelle.
 
 A rule left with only some of its files is not removed: Gazelle updates its `srcs`.
+
+## Rule order
+
+Gazelle adds a new rule at the end of its BUILD file. Two branches that each add a test to one directory
+then both add a block at the same place, and a merge conflicts. After Gazelle runs, `gazelle_bash()` sorts
+each BUILD file's rules by name, so a new rule goes where its name puts it:
+
+- The rules sorted are those of the kinds this extension generates, and of the kinds a
+  `# gazelle:map_kind` maps them to, hand-written ones included.
+- They swap places among themselves, in byte order of their names (`run`, `run-check`, `run_files`): a
+  `load()`, a comment block between rules and a rule of another kind, such as a hand-written `sh_binary`,
+  stay where they are. A rule takes the comment lines directly above it along.
+- A rule with `# keep`, or with it in a comment line directly above, stays where it is.
+- The first run after upgrading reorders an existing BUILD file once; later runs only place new rules.
+
+`gazelle.check` doesn't change anything: it names each BUILD file whose rules are out of order and fails.
+
+Two branches that add tests whose names sort next to each other still both add a block at the same place.
+Git's text merge reports a conflict there. Don't give such a BUILD file git's `merge=union` driver: it
+keeps the lines the two new blocks share (`)`, the blank line, the kind's opening line) once, and merges
+them into one rule with two `name`s, which Bazel can't load.
 
 ## Dependencies
 
@@ -354,10 +378,10 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 
 ## Limits
 
-- **Stale targets are removed only through `gazelle_bash()`.** Orion doesn't show an extension the
-  existing BUILD file, so the removal runs as a separate step before Gazelle, using
-  [buildozer](https://github.com/bazelbuild/buildtools/tree/main/buildozer). With plain
-  `aspect_gazelle()`, delete the target of a deleted script by hand.
+- **Stale targets are removed, and rules sorted, only through `gazelle_bash()`.** Orion doesn't show an
+  extension the existing BUILD file or let it choose where a rule goes, so these run as separate steps
+  before and after Gazelle, using [buildozer](https://github.com/bazelbuild/buildtools/tree/main/buildozer).
+  With plain `aspect_gazelle()`, delete the target of a deleted script by hand.
 - **With plain `aspect_gazelle()`, adding `map_kind` fails** with "a target of kind bats_test with the
   same name already exists", because Orion won't replace a rule of another kind. Rename the existing
   rules first: `bazel run @buildozer -- 'set kind my_bats_test' //...:%bats_test`.
@@ -412,7 +436,7 @@ the declared dependencies are complete, because an undeclared file is not in the
 | `package_mode` | With `bash_generation_mode package`, one library target holds a script and the sibling it sources, and tests inside and outside the package pass with only that target |
 
 **Golden cases** (`tests/golden/cases/*`) are small workspaces that the real prebuilt Gazelle runs on,
-through `//:gazelle`, so the stale-target step runs first.
+through `//:gazelle`, so the stale-target step runs first and the sort step last.
 They cover what a live fixture can't: generation errors, BUILD files that exist beforehand, and inputs
 that would break the repo's own generation. Each case can hold:
 
@@ -458,6 +482,14 @@ Review the `git diff` after `--update`. It records whatever the plugin did, righ
 **The stale-target step on its own** is tested by `//wrapper:prune_test`: check mode reports without
 changing anything, a second run finds nothing, directory arguments limit it, git-ignored directories are
 skipped, and a file name with a space never counts as deleted.
+
+**The sort step on its own** is tested by `//wrapper:sort_test`: check mode reports without changing
+anything; a `load()`, a header comment, a rule of another kind and a rule with `# keep` stay put while a
+rule's own comment moves with it; byte order and names with a space; mapped kinds; directory arguments;
+disabled packages; and a second run changes nothing.
+
+Both tests, and the golden test, also run from a host repo with `gazelle_bash` overridden to a local
+checkout, eg `bazel test @gazelle_bash//wrapper:all --override_module=gazelle_bash=../gazelle-bash`.
 
 **The corpus** ([tests/corpus](tests/corpus)) runs the plugin on 24 open-source shell projects pinned to
 a commit, about 3,800 scripts and bats files. For each it checks that generation gives the recorded result

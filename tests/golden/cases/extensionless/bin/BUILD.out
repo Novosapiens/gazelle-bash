@@ -1,6 +1,12 @@
 load("@rules_shell//shell:sh_library.bzl", "sh_library")
 
 sh_library(
+    name = "clash_bin",
+    srcs = ["clash"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
     name = "clash_bin_sh",
     srcs = ["clash_bin.sh"],
     visibility = ["//:__subpackages__"],
@@ -9,12 +15,6 @@ sh_library(
 sh_library(
     name = "dup",
     srcs = ["dup.sh"],
-    visibility = ["//:__subpackages__"],
-)
-
-sh_library(
-    name = "clash_bin",
-    srcs = ["clash"],
     visibility = ["//:__subpackages__"],
 )
 
