@@ -128,7 +128,9 @@ label_for() { [[ "$1" == "." ]] && printf '//:%s' "$2" || printf '//%s:%s' "$1" 
 
 # The BUILD file of package directory <dir>.
 build_file_of() {
-    if [[ -f "$1/BUILD.bazel" ]]; then printf '%s/BUILD.bazel' "$1"; else printf '%s/BUILD' "$1"; fi
+    local prefix="$1/"
+    [[ "$1" == "." ]] && prefix=""
+    if [[ -f "${prefix}BUILD.bazel" ]]; then printf '%sBUILD.bazel' "$prefix"; else printf '%sBUILD' "$prefix"; fi
 }
 
 # full_labels: buildozer prints `//lib` for `//lib:lib`; spell every label out.
