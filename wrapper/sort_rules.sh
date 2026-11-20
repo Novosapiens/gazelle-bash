@@ -39,20 +39,28 @@ while IFS= read -r p; do
     printf 'print label startline endline|%s\n' "$(label_for "$p" '*')"
 done <<<"$pkgs" >"$tmp/rules.cmd"
 # buildozer exits 3 when a command changes nothing.
-"$buildozer" -types "$kinds" -f "$tmp/rules.cmd" 2>/dev/null | full_labels >"$tmp/rules" || true
+"$buildozer" -types "$kinds" -f "$tmp/rules.cmd" 2>/dev/null >"$tmp/rules" || true
 
 # One "<dir>\t<start>\t<end>\t<name>" line per rule that may move, in file order.
 while IFS= read -r line; do
-    # A name can hold a space; the line numbers can't.
+    # A package or a name can hold a space; the line numbers can't.
     end="${line##* }"
     line="${line% *}"
     start="${line##* }"
     label="${line% *}"
-    pkg="${label#//}"
-    pkg="${pkg%%:*}"
+    label="${label#//}"
+    if [[ "$label" == *:* ]]; then
+        pkg="${label%%:*}"
+        name="${label#*:}"
+    else  # buildozer prints `//lib` for `//lib:lib`
+        pkg="$label"
+        name="${label##*/}"
+    fi
     dir="${pkg:-.}"
-    has_keep "$(build_file_of "$dir")" "$start" "$end" && continue
-    printf '%s\t%s\t%s\t%s\n' "$dir" "$start" "$end" "${label##*:}"
+    file="$(build_file_of "$dir")"
+    [[ -f "$file" && "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ ]] || continue
+    has_keep "$file" "$start" "$end" && continue
+    printf '%s\t%s\t%s\t%s\n' "$dir" "$start" "$end" "$name"
 done <"$tmp/rules" | LC_ALL=C sort -t "$(printf '\t')" -k1,1 -k2,2n >"$tmp/movable"
 
 unsorted=0

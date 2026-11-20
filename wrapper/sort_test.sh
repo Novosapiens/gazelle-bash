@@ -81,6 +81,20 @@ run "$ws" fix
 [[ $code -eq 0 ]] || fail "bytes: exit $code: $out"
 [[ "$(names "$ws/BUILD.bazel")" == "run run b run-check run_files" ]] || fail "bytes: got $(names "$ws/BUILD.bazel")"
 
+# A package whose path holds a space, and a rule named after its package (buildozer prints
+# `//pkg` for `//pkg:pkg`), as nvm's tests have.
+ws="$TEST_TMPDIR/spaces"
+new_ws "$ws"
+rule "$ws/Unit tests/BUILD.bazel" sh_library "Unit tests"
+rule "$ws/Unit tests/BUILD.bazel" sh_library "A b"
+rule "$ws/lib/BUILD.bazel" sh_library lib
+rule "$ws/lib/BUILD.bazel" sh_library b
+run "$ws" fix
+[[ $code -eq 0 ]] || fail "spaces: exit $code: $out"
+[[ "$(names "$ws/lib/BUILD.bazel")" == "b lib" ]] || fail "spaces: //lib: got $(names "$ws/lib/BUILD.bazel")"
+[[ "$(names "$ws/Unit tests/BUILD.bazel")" == "A b Unit tests" ]] ||
+    fail "spaces: //Unit tests: got $(names "$ws/Unit tests/BUILD.bazel")"
+
 # A mapped kind is sorted; directory arguments limit the step.
 ws="$TEST_TMPDIR/dirs"
 new_ws "$ws"
