@@ -1,0 +1,39 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+# The suite needs a terminal.
+bats_test(
+    name = "a",
+    srcs = ["a.bats"],
+    tags = ["manual"],
+)
+
+sh_test(
+    name = "c_test",
+    srcs = ["c_test.sh"],
+    size = "small",
+)
+
+sh_library(
+    name = "lib",
+    srcs = ["lib.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+# keep
+sh_test(
+    name = "kept_test",
+    srcs = ["kept_test.sh"],
+)
+
+bats_test(
+    name = "gone",
+    srcs = ["gone.bats"],
+)
+
+sh_binary(
+    name = "tool",
+    srcs = ["c_test.sh"],
+)

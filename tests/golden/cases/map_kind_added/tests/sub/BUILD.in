@@ -1,0 +1,7 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+bats_test(
+    name = "b",
+    srcs = ["b.bats"],
+    tags = ["exclusive"],
+)
