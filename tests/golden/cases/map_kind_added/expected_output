@@ -1,0 +1,3 @@
+gazelle-bash: removed //tests:gone: its files are gone: gone.bats
+gazelle-bash: //tests:a is now a my_bats_test (map_kind)
+gazelle-bash: //tests/sub:b is now a my_bats_test (map_kind)

@@ -66,6 +66,26 @@ stale_lib "$ws/a/BUILD.bazel" spaced_gone "other file.sh"
 run "$ws" check
 [[ $code -eq 0 ]] || fail "spaces: a name with a space must never count as stale: $out"
 
+ws="$TEST_TMPDIR/map_kind"
+new_ws "$ws"
+printf '# gazelle:map_kind sh_library my_lib //:defs.bzl\n' >"$ws/BUILD.bazel"
+mkdir -p "$ws/a" "$ws/off"
+: >"$ws/a/x.sh"
+: >"$ws/off/x.sh"
+stale_lib "$ws/a/BUILD.bazel" x x.sh
+printf '# gazelle:map_kind sh_library sh_library @rules_shell//shell:sh_library.bzl\n' >"$ws/off/BUILD.bazel"
+stale_lib "$ws/off/BUILD.bazel" x x.sh
+run "$ws" check
+[[ $code -eq 1 && "$out" == *"//a:x is a sh_library, but map_kind maps sh_library to my_lib there"* ]] ||
+    fail "map_kind check: exit $code: $out"
+[[ "$out" != *"//off:x"* ]] || fail "map_kind check: a subpackage maps the kind back, yet: $out"
+grep -q '^sh_library' "$ws/a/BUILD.bazel" || fail "map_kind check: changed the BUILD file"
+run "$ws" fix
+[[ $code -eq 0 ]] && grep -q '^my_lib(' "$ws/a/BUILD.bazel" || fail "map_kind fix: exit $code: $out"
+grep -q '^sh_library(' "$ws/off/BUILD.bazel" || fail "map_kind fix: renamed //off:x"
+run "$ws" check
+[[ $code -eq 0 ]] || fail "map_kind check after fix: exit $code: $out"
+
 if command -v git >/dev/null; then
     ws="$TEST_TMPDIR/git"
     new_ws "$ws"

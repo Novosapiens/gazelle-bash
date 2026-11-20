@@ -320,6 +320,24 @@ extension writes: `name`, `srcs` and `data`. Attributes added by hand to one tar
 `tags = ["manual"]`, survive regeneration. A hand-added entry in `data` does not, unless its line ends
 with `# keep`; put shared entries in the macro instead.
 
+Adding `map_kind` to a repo that already has generated targets works in one run with `gazelle_bash()`.
+Before Gazelle runs, each existing rule of the mapped kind in the directive's packages takes the new
+kind and keeps its attributes and comments, and Gazelle replaces the old `load()` with the macro's:
+
+```
+gazelle-bash: //tests:a is now a my_bats_test (map_kind)
+```
+
+Hand-written rules of that kind, and rules with `# keep`, are renamed too: Gazelle can't keep a rule
+under a kind it no longer generates. `gazelle.check` lists the rules to rename and fails.
+
+Removing `map_kind` again is not undone for you, because nothing then says `my_bats_test` was once a
+`bats_test`. Rename the rules back before running Gazelle:
+
+```sh
+bazel run @buildozer -- 'set kind bats_test' //...:%my_bats_test
+```
+
 ## Settings
 
 Set these as directives in a BUILD file. Subpackages inherit them.
@@ -340,6 +358,9 @@ Set these as directives in a BUILD file. Subpackages inherit them.
   existing BUILD file, so the removal runs as a separate step before Gazelle, using
   [buildozer](https://github.com/bazelbuild/buildtools/tree/main/buildozer). With plain
   `aspect_gazelle()`, delete the target of a deleted script by hand.
+- **With plain `aspect_gazelle()`, adding `map_kind` fails** with "a target of kind bats_test with the
+  same name already exists", because Orion won't replace a rule of another kind. Rename the existing
+  rules first: `bazel run @buildozer -- 'set kind my_bats_test' //...:%bats_test`.
 - **A deleted file whose name holds a space, quote or backslash keeps its target.** buildozer prints a
   `srcs` list without quotes, so such a name can't be told apart reliably; the step leaves the rule alone.
 - **A hand-written `filegroup` (or other generated kind) whose listed files are all gone is removed.**
@@ -416,6 +437,7 @@ that would break the repo's own generation. Each case can hold:
 | `disabled` | `# gazelle:gazelle_bash disabled` turns it off for a subtree only |
 | `path_dirs` | Commands run by bare name: after `run` and its options, `\|`, `&&`, `;`, `!`, `$( )`, assignments and `if`; a `.sh` command; two directories; not builtins, arguments, comments, system commands or libraries |
 | `map_kind` | Generated tests use the mapped macro, a subpackage inherits it, and an existing mapped target keeps its hand-added `tags` |
+| `map_kind_added` | `map_kind` added to existing generated targets: each takes the mapped kind with its `tags`, `size` and comments, including one with `# keep` and one in a subpackage; a stale one is removed instead; a hand-written `sh_binary` is untouched |
 | `bazel_symlinks` | Bazel's `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<name>` links don't stop generation |
 | `multiline_string` | Lines inside multi-line `"…"`, `'…'` and `$'…'` strings are not read; an apostrophe in a comment is not a quote; when the tracker loses count, every line is read |
 | `ignore` | `# gazelle-bash: ignore` above a line or at its end, for `source`, `.` and `load` |

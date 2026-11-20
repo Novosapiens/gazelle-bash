@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Finds, and in fix mode deletes, generated targets whose files were all deleted.
+# Before Gazelle runs: finds, and in fix mode deletes, generated targets whose files were all
+# deleted, and gives an existing rule the kind a `map_kind` maps its kind to.
 #
 #   prune_stale.sh <buildozer> fix|check [dir...]
 #
@@ -18,6 +19,10 @@
 # package's library or filegroup (`lib` or `lib_files` in `lib/`). That was the test's name
 # in `file` mode; shell.axl now generates the test as `lib_bats` and can't remove the old
 # rule itself.
+#
+# A rule of a kind that a `map_kind` maps in its package takes the mapped kind, keeping its
+# attributes. Orion fails on it otherwise ("a target of kind bats_test with the same name
+# already exists").
 #
 # Packages Gazelle skips (`# gazelle:exclude`, `# gazelle:gazelle_bash disabled`) are skipped.
 #
@@ -43,7 +48,8 @@ list_build_files() {
 
 # Reads BUILD file paths and prints "KIND <kind>" for each kind to check, "TESTKIND <kind>"
 # for the test kinds among them, then "PKG <dir> <generation mode>" for each package Gazelle
-# would visit with gazelle_bash enabled ("." for the root).
+# would visit with gazelle_bash enabled ("." for the root), each followed by
+# "MAP <dir> <kind> <mapped kind>" for each kind a `map_kind` maps there.
 plan() {
     awk -v dirs="$*" '
         function dir_of(f) { return (f ~ /\//) ? substr(f, 1, match(f, /\/[^\/]*$/) - 1) : "." }
@@ -85,6 +91,14 @@ plan() {
                 p = parent(p)
             }
         }
+        # The kind map_kind maps base kind k to in package p, or "" if none.
+        function mapping(p, k) {
+            while (1) {
+                if ((p, k) in mapped) return mapped[p, k]
+                if (p == ".") return ""
+                p = parent(p)
+            }
+        }
         function wanted(p,    i, n, d) {
             if (dirs == "") return 1
             n = split(dirs, d, " ")
@@ -115,6 +129,7 @@ plan() {
                 else if (w[1] == "map_kind" && n >= 3 && (w[2] in base)) {
                     kinds[w[3]] = 1
                     if (w[2] in tests) tests[w[3]] = 1
+                    mapped[p, w[2]] = w[3]
                 }
             }
             close(f)
@@ -125,7 +140,12 @@ plan() {
             for (i = 1; i <= npkg; i++) {
                 p = order[i]
                 if (p != "." && excluded(p)) continue
-                if (enabled(p) && wanted(p)) print "PKG " p " " mode_of(p)
+                if (!enabled(p) || !wanted(p)) continue
+                print "PKG " p " " mode_of(p)
+                for (k in base) {
+                    to = mapping(p, k)
+                    if (to != "" && to != k) print "MAP " p " " k " " to
+                }
             }
         }
     '
@@ -217,19 +237,47 @@ while read -r label kind start end srcs; do
     stale+=("$label its files are gone: ${gone[*]}")
 done <"$tmp/candidates"
 
-((${#stale[@]})) || exit 0
+# A rule of a kind that `map_kind` maps in its package gets the mapped kind, keeping its
+# attributes, so Gazelle merges into it. Orion fails on it otherwise: it generates the mapped
+# kind under the rule's name and won't replace a rule of another kind. Stale rules are
+# deleted instead. A rule with `# keep` is renamed too: Gazelle leaves its attributes alone,
+# but it can't keep a rule under a kind it no longer generates.
+printf '%s\n' "$plan_out" | sed -n 's/^MAP //p' >"$tmp/maps"
+renames=()
+stale_labels=" "
+for s in ${stale[@]+"${stale[@]}"}; do stale_labels+="${s%% *} "; done
+while read -r label kind to; do
+    [[ "$stale_labels" == *" $label "* ]] && continue
+    renames+=("$label $kind $to")
+done < <(awk 'NR == FNR { to[$1 " " $2] = $3; next }
+    {
+        pkg = $1; sub(/^\/\//, "", pkg); sub(/:.*/, "", pkg)
+        if (pkg == "") pkg = "."
+        if ((pkg " " $2) in to) print $1, $2, to[pkg " " $2]
+    }' "$tmp/maps" "$tmp/candidates")
+
+((${#stale[@]} + ${#renames[@]})) || exit 0
 
 if [[ "$mode" == "check" ]]; then
-    for s in "${stale[@]}"; do
+    for s in ${stale[@]+"${stale[@]}"}; do
         echo "gazelle-bash: stale target ${s%% *}: ${s#* }" >&2
     done
-    echo "gazelle-bash: ${#stale[@]} stale target(s). Run: bazel run //:gazelle" >&2
+    for r in ${renames[@]+"${renames[@]}"}; do
+        set -- $r
+        echo "gazelle-bash: $1 is a $2, but map_kind maps $2 to $3 there" >&2
+    done
+    echo "gazelle-bash: $((${#stale[@]} + ${#renames[@]})) target(s) to fix. Run: bazel run //:gazelle" >&2
     exit 1
 fi
 
-: >"$tmp/delete.cmd"
-for s in "${stale[@]}"; do
-    printf 'delete|%s\n' "${s%% *}" >>"$tmp/delete.cmd"
+: >"$tmp/fix.cmd"
+for s in ${stale[@]+"${stale[@]}"}; do
+    printf 'delete|%s\n' "${s%% *}" >>"$tmp/fix.cmd"
     echo "gazelle-bash: removed ${s%% *}: ${s#* }"
 done
-bz -f "$tmp/delete.cmd" >/dev/null
+for r in ${renames[@]+"${renames[@]}"}; do
+    set -- $r
+    printf 'set kind %s|%s\n' "$3" "$1" >>"$tmp/fix.cmd"
+    echo "gazelle-bash: $1 is now a $3 (map_kind)"
+done
+bz -f "$tmp/fix.cmd" >/dev/null

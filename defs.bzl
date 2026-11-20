@@ -1,4 +1,5 @@
-"""gazelle_bash(): Aspect's prebuilt Gazelle with shell.axl, plus removal of stale targets.
+"""gazelle_bash(): Aspect's prebuilt Gazelle with shell.axl, plus removal of stale targets and
+kind renames for `map_kind`.
 
 Orion doesn't show an extension the existing BUILD file, so shell.axl can't remove a target
 whose file was deleted. gazelle_bash() runs a prune step first, which does.
@@ -54,8 +55,9 @@ def gazelle_bash(name = "gazelle", languages = [], extensions = [], with_check =
 
     Before Gazelle runs, targets whose files were all deleted are removed: rules of the kinds
     shell.axl generates (and the kinds `map_kind` maps them to) whose `srcs` lists only files
-    of the package that no longer exist. A rule with `# keep` is never removed. `name.check`
-    reports them and fails instead.
+    of the package that no longer exist. A rule with `# keep` is never removed. Then each rule of
+    a kind a `map_kind` maps in its package takes the mapped kind, so adding `map_kind` to a repo
+    with generated targets works. `name.check` reports both and fails instead.
     """
     exts = [_AXL] + [e for e in extensions if native.package_relative_label(e) != _AXL]
     inner = "_%s_orion" % name
