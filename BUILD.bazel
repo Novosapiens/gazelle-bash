@@ -4,6 +4,8 @@ load("//:defs.bzl", "gazelle_bash")
 # gazelle:exclude tests/golden
 # The corpus runner is run by hand and in CI, not through Bazel.
 # gazelle:exclude tests/corpus
+# So is the lifecycle runner, which builds a host repo of its own.
+# gazelle:exclude tests/lifecycle
 # The scripts gazelle_bash() runs are not fixtures.
 # gazelle:exclude wrapper
 
@@ -11,6 +13,7 @@ exports_files(
     [
         "shell.axl",
         "defs.bzl",
+        "MODULE.bazel",
     ],
     visibility = ["//visibility:public"],
 )

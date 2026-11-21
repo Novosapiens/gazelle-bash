@@ -1,0 +1,3 @@
+# gazelle:generation_mode create_and_update
+# gazelle:bash_generation_mode package
+# gazelle:exclude vendor

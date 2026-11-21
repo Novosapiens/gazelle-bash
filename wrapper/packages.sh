@@ -10,7 +10,11 @@
 list_build_files() {
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         git ls-files -co --exclude-standard -- 'BUILD' 'BUILD.bazel' '**/BUILD' '**/BUILD.bazel' |
-            while IFS= read -r f; do [[ -f "$f" ]] && printf '%s\n' "$f"; done
+            while IFS= read -r f; do
+                # A tracked BUILD file that was deleted is listed too. An `if`, so the loop
+                # doesn't end with a failed test, which fails the caller under pipefail.
+                if [[ -f "$f" ]]; then printf '%s\n' "$f"; fi
+            done
     else
         find . \( -name 'bazel-*' -o -name '.git' \) -prune -o \
             \( -name BUILD -o -name BUILD.bazel \) -type f -print | sed 's|^\./||'
@@ -18,7 +22,8 @@ list_build_files() {
 }
 
 # Reads BUILD file paths and prints "KIND <kind>" for each kind shell.axl generates or a
-# `map_kind` maps one to, "TESTKIND <kind>" for the test kinds among them, then
+# `map_kind` maps one to, "TESTKIND <kind>" for the test kinds among them, "LIBKIND <kind>" and
+# "GROUPKIND <kind>" for sh_library and filegroup and the kinds mapped from them, then
 # "PKG <dir> <generation mode>" for each package Gazelle would visit with gazelle_bash enabled
 # ("." for the root), each followed by "MAP <dir> <kind> <mapped kind>" for each kind a
 # `map_kind` maps there. Packages Gazelle skips (`# gazelle:exclude`,
@@ -85,6 +90,8 @@ plan() {
             base["sh_library"] = base["sh_test"] = base["bats_test"] = base["filegroup"] = 1
             for (k in base) kinds[k] = 1
             tests["sh_test"] = tests["bats_test"] = 1
+            libs["sh_library"] = 1
+            groups["filegroup"] = 1
         }
         {
             f = $0
@@ -102,6 +109,8 @@ plan() {
                 else if (w[1] == "map_kind" && n >= 3 && (w[2] in base)) {
                     kinds[w[3]] = 1
                     if (w[2] in tests) tests[w[3]] = 1
+                    if (w[2] == "sh_library") libs[w[3]] = 1
+                    if (w[2] == "filegroup") groups[w[3]] = 1
                     mapped[p, w[2]] = w[3]
                 }
             }
@@ -110,6 +119,8 @@ plan() {
         END {
             for (k in kinds) print "KIND " k
             for (k in tests) print "TESTKIND " k
+            for (k in libs) print "LIBKIND " k
+            for (k in groups) print "GROUPKIND " k
             for (i = 1; i <= npkg; i++) {
                 p = order[i]
                 if (p != "." && excluded(p)) continue

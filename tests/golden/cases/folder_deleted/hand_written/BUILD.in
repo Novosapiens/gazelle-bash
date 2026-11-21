@@ -1,0 +1,5 @@
+genrule(
+    name = "stamp",
+    outs = ["stamp.txt"],
+    cmd = "date > $@",
+)

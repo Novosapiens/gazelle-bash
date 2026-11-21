@@ -1,0 +1,2 @@
+gazelle-bash: removed //gone:gone: its files are gone: a.sh
+gazelle-bash: removed gone/BUILD.bazel: nothing else is left in its directory
