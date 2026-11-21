@@ -23,6 +23,21 @@ jobs:
       # Runs the generated targets in the sandbox: proves declared deps are complete.
       - run: bazel test //...
 
+  # Takes a host repo in create mode through a folder being added, renamed, deleted and
+  # excluded, with gazelle.check and bazel build after each step.
+  lifecycle:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: bazel-contrib/setup-bazel@0.19.2
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+      - run: bazel run //tests/lifecycle:run
+
   # Runs the plugin on real open-source shell projects pinned in tests/corpus/projects.txt.
   corpus:
     runs-on: ubuntu-latest

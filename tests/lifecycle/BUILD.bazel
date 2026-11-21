@@ -1,0 +1,21 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+# Hand-written: //:gazelle excludes this directory. Runs Bazel in a host repo of its own, so it
+# is a `bazel run` target, not a test: `bazel run //tests/lifecycle:run`.
+sh_binary(
+    name = "run",
+    srcs = ["run.sh"],
+    data = [
+        "//:MODULE.bazel",
+        "//:gazelle",
+        "//:gazelle.check",
+        "//:shell.axl",
+    ],
+    env = {
+        "AXL": "$(rlocationpath //:shell.axl)",
+        "CHECK": "$(rlocationpath //:gazelle.check)",
+        "GAZELLE": "$(rlocationpath //:gazelle)",
+        "MODULE": "$(rlocationpath //:MODULE.bazel)",
+    },
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)

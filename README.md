@@ -17,11 +17,11 @@ bazel_dep(name = "aspect_gazelle_prebuilt", version = "0.0.29")
 bazel_dep(name = "rules_shell", version = "0.10.0")
 bazel_dep(name = "bazel_lib", version = "3.8.0")
 
-bazel_dep(name = "gazelle_bash", version = "0.5.0")
+bazel_dep(name = "gazelle_bash", version = "0.6.0")
 git_override(  # until gazelle_bash is on the Bazel Central Registry
     module_name = "gazelle_bash",
     remote = "https://github.com/Novosapiens/gazelle-bash.git",
-    tag = "v0.5.0",
+    tag = "v0.6.0",
 )
 ```
 
@@ -147,6 +147,22 @@ The trade-offs:
 Switching an existing directory to `package` removes its per-file targets in the same run, unless they
 have `# keep`.
 
+### A BUILD file per folder
+
+Under Gazelle's default `# gazelle:generation_mode create_and_update`, each run writes a BUILD file in
+every folder that holds a script, a test or a `bash_data_files` match, and keeps it as folders change:
+
+| The folder is | Through `gazelle_bash()`, the next run |
+| --- | --- |
+| Added | Writes its BUILD file. A folder with nothing to build, or one under `# gazelle:exclude`, gets none |
+| Renamed (`git mv lib util`) | Removes the moved BUILD file's `lib`, `lib_files` and `lib_bats` and generates `util`, `util_files` and `lib` for the same files; every generated `data` that pointed at `//lib` now points at `//util` |
+| Deleted, with its BUILD file | Drops the generated `data` labels that pointed into it |
+| Deleted, but its BUILD file is left | Also removes that BUILD file, and the folder, once all its rules are stale |
+
+A source line that still names a script of the old folder fails generation, as any path to a missing
+script does: update it, and the label follows. Under `update_only`, Gazelle never writes a BUILD file,
+so a new folder's scripts belong to no target until one is added.
+
 ## Deleted and renamed files
 
 Before Gazelle runs, `gazelle_bash()` removes a target whose files are all gone. A rule is removed when:
@@ -171,6 +187,19 @@ script before `bazel build` does. `bazel run //:gazelle -- some/dir` limits the 
 it limits Gazelle.
 
 A rule left with only some of its files is not removed: Gazelle updates its `srcs`.
+
+Two more cases are removed, for folders (see "A BUILD file per folder"):
+
+- In a `package` mode directory, a rule whose files all exist but whose name belongs to another
+  directory's package targets: a library not named after the directory, a `*_files` filegroup not
+  named `<directory>_files`, and a test folded to `<file>_<ext>` though it clashes with nothing. The
+  directory was renamed. This also removes a hand-written `sh_library` there; add `# keep` to keep it.
+- A BUILD file that is the only file left in its directory, when every rule in it is stale, and it has
+  no `# gazelle:` directive and no `# keep`. The directory goes with it:
+
+```
+gazelle-bash: removed lib/BUILD.bazel: nothing else is left in its directory
+```
 
 ## Rule order
 
@@ -408,13 +437,28 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 
 ## Developing
 
-Three checks, all run in CI:
+Four checks, all run in CI:
 
 ```sh
-bazel run //:gazelle.check   # the live fixtures' committed BUILD files are current
-bazel test //...             # the live fixtures pass in the sandbox, plus the golden test
-tests/corpus/run.sh          # 24 real open-source projects still give their recorded result
+bazel run //:gazelle.check        # the live fixtures' committed BUILD files are current
+bazel test //...                  # the live fixtures pass in the sandbox, plus the golden test
+bazel run //tests/lifecycle:run   # a folder added, renamed, deleted and excluded, in a host repo
+tests/corpus/run.sh               # 24 real open-source projects still give their recorded result
 ```
+
+**The lifecycle run** builds a host repo in `create_and_update` and `package` mode and takes a folder
+through its life. After each step it runs `//:gazelle`, then `gazelle.check` and `bazel build //...`
+in the host repo, and queries its targets and `data` labels:
+
+| Step | Checks |
+| --- | --- |
+| A new folder with a script | It gets a BUILD file with its library and filegroup, and another folder's test depends on them |
+| An excluded folder | It gets no BUILD file, though its script sources a file that isn't there |
+| `git mv lib util` | `//util` holds `util` and `util_files`, and no label points at `//lib` |
+| The folder's files deleted, its BUILD file left | The BUILD file is gone, no label points at `//util`, and only `//app` is left |
+
+It runs Bazel itself, so it is a `bazel run` target and not part of `bazel test //...`. Pass a
+directory to keep the host repo and its logs: `bazel run //tests/lifecycle:run -- /tmp/lifecycle`.
 
 **Live fixtures** (`tests/*`, except `golden`) are generated in place and run as real tests. Passing proves
 the declared dependencies are complete, because an undeclared file is not in the sandbox.
@@ -471,6 +515,9 @@ that would break the repo's own generation. Each case can hold:
 | `generation_mode_add` | In `package` mode, a new file adds one line to the existing target's `srcs`, and hand-added attributes survive |
 | `generation_mode_switch` | Switching a directory to `package` mode removes its per-file targets, keeps one with `# keep` and a hand-written `sh_binary`, and replaces a test that held the package's name |
 | `generation_mode_invalid` | An unknown `bash_generation_mode` value fails generation with a clear error |
+| `folder_created` | Under `create_and_update`, a new folder and a nested one each get a BUILD file; an excluded folder and one with no script get none |
+| `folder_renamed` | A `package` mode folder moved with its BUILD file: its targets take the new folder's names, and the labels in another folder follow; a rule with `# keep` and a hand-written `sh_binary` stay |
+| `folder_deleted` | A BUILD file left alone in a deleted folder is removed, and so is the label that pointed into it; one with a directive, or a rule of another kind, stays |
 
 ```sh
 bazel run //tests/golden:golden_test -- --update      # rewrite BUILD.out files from actual output
@@ -481,7 +528,8 @@ Review the `git diff` after `--update`. It records whatever the plugin did, righ
 
 **The stale-target step on its own** is tested by `//wrapper:prune_test`: check mode reports without
 changing anything, a second run finds nothing, directory arguments limit it, git-ignored directories are
-skipped, and a file name with a space never counts as deleted.
+skipped, a tracked BUILD file that was deleted doesn't stop it, a file name with a space never counts as
+deleted, a BUILD file left alone in a deleted directory goes, and a renamed directory's targets are found.
 
 **The sort step on its own** is tested by `//wrapper:sort_test`: check mode reports without changing
 anything; a `load()`, a header comment, a rule of another kind and a rule with `# keep` stay put while a

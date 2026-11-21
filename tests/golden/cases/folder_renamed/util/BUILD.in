@@ -1,0 +1,35 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+# The BUILD file `git mv lib util` moved along: its targets are still named after lib.
+
+bats_test(
+    name = "lib_bats",
+    srcs = ["lib.bats"],
+    data = [":lib"],
+)
+
+sh_library(
+    name = "lib",
+    srcs = ["log.sh"],
+    data = [":lib_files"],
+    visibility = ["//:__subpackages__"],
+)
+
+filegroup(
+    name = "lib_files",
+    srcs = ["notes.txt"],
+    visibility = ["//:__subpackages__"],
+)
+
+# keep
+sh_library(
+    name = "pinned",
+    srcs = ["log.sh"],
+)
+
+sh_binary(
+    name = "run",
+    srcs = ["log.sh"],
+)

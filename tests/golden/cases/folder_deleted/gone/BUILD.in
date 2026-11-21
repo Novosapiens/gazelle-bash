@@ -1,0 +1,22 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# All that is left of gone/ after its files were deleted.
+
+sh_library(
+    name = "gone",
+    srcs = ["a.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+filegroup(
+    name = "gone_files",
+    srcs = ["a.txt"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_test(
+    name = "a_test",
+    srcs = ["a_test.sh"],
+    data = [":gone"],
+)

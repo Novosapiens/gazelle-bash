@@ -1,0 +1,18 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+sh_library(
+    name = "app",
+    srcs = ["run.sh"],
+    data = ["//lib"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_test(
+    name = "run_test",
+    srcs = ["run_test.sh"],
+    data = [
+        ":app",
+        "//lib:lib_files",
+    ],
+)

@@ -1,0 +1,3 @@
+# gazelle:bash_generation_mode package
+# gazelle:bash_root_vars REPO=.
+# gazelle:bash_data_files **/*.txt

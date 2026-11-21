@@ -1,0 +1,7 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+sh_test(
+    name = "check_test",
+    srcs = ["check_test.sh"],
+    data = ["//gone:gone_files"],
+)

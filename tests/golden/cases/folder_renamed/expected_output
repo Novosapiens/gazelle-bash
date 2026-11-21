@@ -1,0 +1,3 @@
+gazelle-bash: removed //util:lib: package mode names this directory's targets after util
+gazelle-bash: removed //util:lib_files: package mode names this directory's targets after util
+gazelle-bash: removed //util:lib_bats: package mode names this directory's targets after util

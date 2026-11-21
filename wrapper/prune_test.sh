@@ -86,15 +86,60 @@ grep -q '^sh_library(' "$ws/off/BUILD.bazel" || fail "map_kind fix: renamed //of
 run "$ws" check
 [[ $code -eq 0 ]] || fail "map_kind check after fix: exit $code: $out"
 
+ws="$TEST_TMPDIR/deleted_dir"
+new_ws "$ws"
+stale_lib "$ws/gone/BUILD.bazel" gone gone.sh
+stale_lib "$ws/other/BUILD.bazel" gone gone.sh
+: >"$ws/other/README.md"
+mkdir -p "$ws/directive"
+printf '# gazelle:bash_generation_mode file\n' >"$ws/directive/BUILD.bazel"
+run "$ws" check
+[[ $code -eq 1 && "$out" == *"stale BUILD file gone/BUILD.bazel: nothing else is left in its directory"* ]] ||
+    fail "deleted_dir check: exit $code: $out"
+[[ "$out" != *"stale BUILD file other/"* && "$out" != *"stale BUILD file directive/"* ]] ||
+    fail "deleted_dir check: a directory with another file, or a directive, is not deleted: $out"
+[[ -f "$ws/gone/BUILD.bazel" ]] || fail "deleted_dir check: removed the BUILD file"
+run "$ws" fix
+[[ $code -eq 0 && ! -e "$ws/gone" ]] || fail "deleted_dir fix: gone/ is still there, exit $code: $out"
+[[ -f "$ws/other/BUILD.bazel" && -f "$ws/directive/BUILD.bazel" ]] || fail "deleted_dir fix: removed a BUILD file it should keep"
+run "$ws" check
+[[ $code -eq 0 ]] || fail "deleted_dir check after fix: exit $code: $out"
+
+ws="$TEST_TMPDIR/renamed_dir"
+new_ws "$ws"
+printf '# gazelle:bash_generation_mode package\n' >"$ws/BUILD.bazel"
+mkdir -p "$ws/util"
+: >"$ws/util/log.sh"
+: >"$ws/util/notes.txt"
+: >"$ws/util/lib.bats"
+: >"$ws/util/util.bats"
+stale_lib "$ws/util/BUILD.bazel" lib log.sh
+printf 'filegroup(\n    name = "lib_files",\n    srcs = ["notes.txt"],\n)\n\n' >>"$ws/util/BUILD.bazel"
+printf 'bats_test(\n    name = "lib_bats",\n    srcs = ["lib.bats"],\n)\n\n' >>"$ws/util/BUILD.bazel"
+printf 'bats_test(\n    name = "util_bats",\n    srcs = ["util.bats"],\n)\n\n' >>"$ws/util/BUILD.bazel"
+printf '# keep\n' >>"$ws/util/BUILD.bazel"
+stale_lib "$ws/util/BUILD.bazel" pinned log.sh
+run "$ws" check
+for t in lib lib_files lib_bats; do
+    [[ "$out" == *"stale target //util:$t: package mode names this directory's targets after util"* ]] ||
+        fail "renamed_dir check: want //util:$t stale: $out"
+done
+[[ "$out" != *"//util:util_bats"* && "$out" != *"//util:pinned"* ]] ||
+    fail "renamed_dir check: a test named after its own directory, or a rule with # keep, is not stale: $out"
+
 if command -v git >/dev/null; then
     ws="$TEST_TMPDIR/git"
     new_ws "$ws"
     stale_lib "$ws/a/BUILD.bazel" gone gone.sh
     stale_lib "$ws/ignored/BUILD.bazel" gone gone.sh
+    stale_lib "$ws/z/BUILD.bazel" gone gone.sh
     echo ignored/ >"$ws/.gitignore"
     git -C "$ws" init -q
+    git -C "$ws" add z/BUILD.bazel
+    rm -r "$ws/z"  # tracked, then deleted: git still lists it, last
     run "$ws" check
-    [[ "$out" == *"//a:gone"* && "$out" != *"//ignored:gone"* ]] || fail "git: want only //a:gone, got: $out"
+    [[ "$out" == *"//a:gone"* && "$out" != *"//ignored:gone"* && "$out" != *"//z:gone"* ]] ||
+        fail "git: want only //a:gone, got exit $code: $out"
 fi
 
 ((failed == 0)) && echo PASS
