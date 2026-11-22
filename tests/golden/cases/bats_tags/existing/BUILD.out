@@ -1,0 +1,35 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+# Its file now has the bats tag `structure`; `exclusive` was added by hand.
+bats_test(
+    name = "added",
+    srcs = ["added.bats"],
+    tags = [
+        "exclusive",
+        "manual",
+        "structure",
+    ],
+)
+
+# `manual` is marked to stay though no bats tag asks for it; `external` is not.
+bats_test(
+    name = "pinned",
+    srcs = ["pinned.bats"],
+    tags = [
+        "manual",  # keep
+    ],
+)
+
+# Its file no longer has the bats tag `requires-network`.
+bats_test(
+    name = "removed",
+    size = "small",
+    srcs = ["removed.bats"],
+    tags = ["exclusive"],
+)
+
+bats_test(
+    name = "same",
+    srcs = ["same.bats"],
+    tags = ["requires-network"],
+)

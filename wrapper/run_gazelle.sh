@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Runs prune_stale.sh, then the aspect_gazelle runner it wraps, then sort_rules.sh. A
-# template: gazelle_bash() in //:defs.bzl fills in the @@...@@ values.
+# Runs prune_stale.sh, then the aspect_gazelle runner it wraps, then bats_tags.sh and
+# sort_rules.sh. A template: gazelle_bash() in //:defs.bzl fills in the @@...@@ values.
 #
 #   bazel run //:gazelle [-- gazelle args...]
 #
-# In check mode, all three still run, so the output shows the stale targets, the BUILD diff
-# and the rules out of order together; it fails if any finds something.
+# In check mode, all four still run, so the output shows the stale targets, the BUILD diff,
+# the tags that differ and the rules out of order together; it fails if any finds something.
 
 # --- begin runfiles.bash initialization v3 ---
 set -uo pipefail; set +e; f=bazel_tools/tools/bash/runfiles/runfiles.bash
@@ -28,8 +28,9 @@ buildozer="$(rlocation "@@BUILDOZER@@")"
 runner="$(rlocation "@@RUNNER@@")"
 prune="$(rlocation "@@PRUNE@@")"
 sort_rules="$(rlocation "@@SORT@@")"
+bats_tags="$(rlocation "@@TAGS@@")"
 
-# Arguments that name a directory limit the prune and the sort, as they limit Gazelle.
+# Arguments that name a directory limit the other steps, as they limit Gazelle.
 dirs=()
 for arg in "$@"; do
     [[ "$arg" != -* && -d "$BUILD_WORKSPACE_DIRECTORY/$arg" ]] && dirs+=("$arg")
@@ -62,9 +63,18 @@ if [[ $generated -ne 0 && "$mode" == "fix" ]]; then
 fi
 
 set +e
+step "$bats_tags"
+tagged=$?
+set -e
+if [[ $tagged -ne 0 && "$mode" == "fix" ]]; then
+    exit $tagged
+fi
+
+set +e
 step "$sort_rules"
 sorted=$?
 set -e
 ((pruned == 0)) || exit $pruned
 ((generated == 0)) || exit $generated
+((tagged == 0)) || exit $tagged
 exit $sorted

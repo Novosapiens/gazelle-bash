@@ -1,0 +1,3 @@
+gazelle-bash: //existing:added gets the tags manual, structure from the bats tags of added.bats (bats_tags)
+gazelle-bash: //existing:removed loses the tag requires-network, which no bats tag of removed.bats asks for (bats_tags)
+gazelle-bash: //fresh:net gets the tag requires-network from the bats tags of net.bats (bats_tags)

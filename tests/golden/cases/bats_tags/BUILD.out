@@ -1,0 +1,2 @@
+# gazelle:generation_mode create_and_update
+# gazelle:bats_tags structure=manual+structure,requires-network,external
