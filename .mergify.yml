@@ -1,0 +1,33 @@
+# Mergify merge queue: a PR merges by itself once its CI passes, with no manual merge.
+# Mergify queues every PR that matches queue_conditions (not a draft, ci-passed green), tests up
+# to 3 together against the latest main on a draft PR from a mergify/merge-queue/... branch, and
+# squash-merges each with its title and description. Branches needn't be up to date: the batch is
+# tested on the latest main, so the ruleset (.github/rulesets/main.json) doesn't require it.
+# Needs the Mergify app on the repo and Merge Protections enabled in Mergify's dashboard.
+# Modelled on Neev's template (Novosapiens/neev, plugin/templates/mergify.yml).
+merge_protections_settings:
+  auto_merge_conditions: true
+
+merge_queue:
+  mode: serial
+  max_parallel_checks: 2
+
+queue_rules:
+  - name: default
+    queue_conditions:
+      - -draft
+      - check-success = ci-passed
+    # On the batch's draft PR.
+    merge_conditions:
+      - check-success = ci-passed
+    batch_size: 3
+    batch_max_wait_time: 3 min
+    # A failed batch is split at once until Mergify finds the PR that broke it, and only that one
+    # is taken out of the queue.
+    update_method: merge
+    merge_method: squash
+    # inherit = the repo's squash settings: commit title = PR title (#N), message = PR description.
+    # The release job publishes that message as the release notes (.github/workflows/release.yaml).
+    commit_message_format:
+      title: inherit
+      body: inherit

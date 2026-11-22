@@ -446,6 +446,16 @@ bazel run //tests/lifecycle:run   # a folder added, renamed, deleted and exclude
 tests/corpus/run.sh               # 24 real open-source projects still give their recorded result
 ```
 
+**Merging.** A pull request merges by itself: once its `ci-passed` check is green and it isn't a
+draft, [Mergify](https://mergify.com) queues it, tests it on the latest `main` and squash-merges it
+(`.mergify.yml`). `main` takes pull requests only, squashed, with `ci-passed` green
+(`.github/rulesets/main.json`).
+
+**Releasing.** Change `version` in `MODULE.bazel` (and the version and tag under "Use it in your
+repo") in the pull request to release. When it merges, the Release workflow tags `v<version>` on
+`main` and publishes a release with the pull request's description as its notes. A merge that
+leaves the version alone releases nothing.
+
 **The lifecycle run** builds a host repo in `create_and_update` and `package` mode and takes a folder
 through its life. After each step it runs `//:gazelle`, then `gazelle.check` and `bazel build //...`
 in the host repo, and queries its targets and `data` labels:
