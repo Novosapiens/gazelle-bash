@@ -48,3 +48,18 @@ jobs:
           bazelisk-cache: true
           repository-cache: true
       - run: tests/corpus/run.sh
+
+  # One check that sums up the others: the one main's ruleset requires and Mergify's queue waits
+  # for (.github/rulesets/main.json, .mergify.yml).
+  ci-passed:
+    if: always()
+    needs: [test, lifecycle, corpus]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "test, lifecycle, corpus: ${RESULTS}"
+          for result in ${RESULTS}; do
+            [[ "${result}" = success ]] || exit 1
+          done
