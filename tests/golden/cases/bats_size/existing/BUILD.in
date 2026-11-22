@@ -1,0 +1,29 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+# Its file now has the bats tag `size:small`; `exclusive` was added by hand.
+bats_test(
+    name = "added",
+    srcs = ["added.bats"],
+    tags = ["exclusive"],
+)
+
+# Its file now asks for a short timeout.
+bats_test(
+    name = "changed",
+    timeout = "long",
+    srcs = ["changed.bats"],
+)
+
+# `large` is marked to stay though the file asks for `small`.
+bats_test(
+    name = "pinned",
+    size = "large",  # keep
+    srcs = ["pinned.bats"],
+)
+
+# Its file no longer has a `size:` bats tag.
+bats_test(
+    name = "removed",
+    size = "small",
+    srcs = ["removed.bats"],
+)

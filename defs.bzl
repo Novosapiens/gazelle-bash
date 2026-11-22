@@ -5,6 +5,7 @@ Orion doesn't show an extension the existing BUILD file, so shell.axl can't remo
 whose file was deleted, add one tag to a `tags` list written by hand, or choose where a new
 rule goes. gazelle_bash() runs a prune step before Gazelle, which removes them, and after it a
 tags step, which gives a bats test the tags `# gazelle:bats_tags` maps its bats tags to, and
+the size and timeout its bats tags name (`# gazelle:bats_size`, `# gazelle:bats_timeout`), and
 a sort step, which puts each rule at its place by name.
 """
 
@@ -70,7 +71,9 @@ def gazelle_bash(name = "gazelle", languages = [], extensions = [], with_check =
 
     After Gazelle runs, each bats test in a package a `# gazelle:bats_tags` applies to gets the
     tags the directive maps its file's bats tags to, and loses those it maps none to; tags the
-    directive doesn't name are left alone. `name.check` fails on a target whose tags differ.
+    directive doesn't name are left alone. With `# gazelle:bats_size` or `# gazelle:bats_timeout`,
+    its `size` or `timeout` is set from a bats tag such as `size:small`, and removed when the
+    file has none. `name.check` fails on a target whose tags, size or timeout differ.
 
     Then the rules of those kinds in each BUILD file are sorted by name, among
     the places they hold, so a new rule goes where its name puts it, not at the end. A rule

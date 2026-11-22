@@ -26,7 +26,9 @@ list_build_files() {
 # "GROUPKIND <kind>" for sh_library and filegroup and the kinds mapped from them, then
 # "PKG <dir> <generation mode>" for each package Gazelle would visit with gazelle_bash enabled
 # ("." for the root), each followed by "MAP <dir> <kind> <mapped kind>" for each kind a
-# `map_kind` maps there, and by "TAGS <dir> <mapping>" when a `# gazelle:bats_tags` applies there.
+# `map_kind` maps there, and by "TAGS <dir> <mapping>" when a `# gazelle:bats_tags` applies there,
+# "SIZE <dir> <prefix>" for a `# gazelle:bats_size` and "TIMEOUT <dir> <prefix>" for a
+# `# gazelle:bats_timeout`.
 # "BATSKIND <kind>" names bats_test and the kinds mapped from it. Packages Gazelle skips (`# gazelle:exclude`,
 # `# gazelle:gazelle_bash disabled`) are left out, and so are those outside the [dir...] given.
 plan() {
@@ -86,6 +88,15 @@ plan() {
                 p = parent(p)
             }
         }
+        # The bats tag prefix that sets attribute a (size, timeout) in package p: its own
+        # `bats_<a>`, or the nearest one above it.
+        function prefix_of(p, a) {
+            while (1) {
+                if ((p, a) in attrmap) return attrmap[p, a]
+                if (p == ".") return ""
+                p = parent(p)
+            }
+        }
         function wanted(p,    i, n, d) {
             if (dirs == "") return 1
             n = split(dirs, d, " ")
@@ -117,6 +128,8 @@ plan() {
                 else if (w[1] == "gazelle_bash" && n >= 2) state[p] = w[2]
                 else if (w[1] == "bash_generation_mode" && n >= 2) gen[p] = w[2]
                 else if (w[1] == "bats_tags") tagmap[p] = (n >= 2) ? w[2] : ""
+                else if (w[1] == "bats_size") attrmap[p, "size"] = (n >= 2) ? w[2] : ""
+                else if (w[1] == "bats_timeout") attrmap[p, "timeout"] = (n >= 2) ? w[2] : ""
                 else if (w[1] == "map_kind" && n >= 3 && (w[2] in base)) {
                     kinds[w[3]] = 1
                     if (w[2] in tests) tests[w[3]] = 1
@@ -144,6 +157,8 @@ plan() {
                     if (to != "" && to != k) print "MAP " p " " k " " to
                 }
                 if (tags_of(p) != "") print "TAGS " p " " tags_of(p)
+                if (prefix_of(p, "size") != "") print "SIZE " p " " prefix_of(p, "size")
+                if (prefix_of(p, "timeout") != "") print "TIMEOUT " p " " prefix_of(p, "timeout")
             }
         }
     '

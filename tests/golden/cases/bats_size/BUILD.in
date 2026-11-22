@@ -1,0 +1,3 @@
+# gazelle:generation_mode create_and_update
+# gazelle:bats_size size
+# gazelle:bats_timeout timeout
