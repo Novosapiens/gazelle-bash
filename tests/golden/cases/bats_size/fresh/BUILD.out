@@ -1,0 +1,18 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+bats_test(
+    name = "plain",
+    srcs = ["plain.bats"],
+)
+
+bats_test(
+    name = "quick",
+    size = "small",
+    srcs = ["quick.bats"],
+)
+
+bats_test(
+    name = "slow",
+    timeout = "long",
+    srcs = ["slow.bats"],
+)

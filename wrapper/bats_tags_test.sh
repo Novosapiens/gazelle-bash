@@ -61,7 +61,7 @@ run "$ws" check
     fail "check: output lacks the missing tag: $out"
 [[ "$out" == *"//t:plain has the tag requires-network, which no bats tag of plain.bats asks for"* ]] ||
     fail "check: output lacks the left-over tag: $out"
-[[ "$out" == *"2 target(s) whose tags differ"* && "$out" != *"//t:same"* ]] || fail "check: wrong count: $out"
+[[ "$out" == *"2 target(s) that differ"* && "$out" != *"//t:same"* ]] || fail "check: wrong count: $out"
 [[ "$(cat "$ws/t/BUILD.bazel")" == "$before" ]] || fail "check: changed the BUILD file"
 run "$ws" fix
 [[ $code -eq 0 ]] || fail "fix: exit $code: $out"
@@ -168,6 +168,128 @@ new_ws "$ws"
 bats "$ws" t a '# bats test_tags=requires-network' 'tags = ["manual"],'
 run "$ws" check
 [[ $code -eq 0 && -z "$out" ]] || fail "no directive: exit $code: $out"
+
+# attr_of <workspace> <label> <attribute>: the rule's attribute as buildozer prints it.
+attr_of() { (cd "$1" && BUILD_WORKING_DIRECTORY="$1" "$buildozer" "print $3" "$2" 2>/dev/null); }
+
+# bats_size and bats_timeout (#14): check mode reports a missing, a different and a left-over
+# value and changes nothing; fix mode sets and removes them, and a second run finds nothing.
+# A file whose tests name several values gets the largest; a tag bats_tags doesn't name is not
+# written as a tag.
+ws="$TEST_TMPDIR/size"
+new_ws "$ws"
+printf '# gazelle:bats_size size\n# gazelle:bats_timeout timeout\n' >>"$ws/BUILD.bazel"
+bats "$ws" t quick '# bats file_tags=size:small'
+bats "$ws" t slow '# bats test_tags=timeout:long' 'timeout = "short",'
+bats "$ws" t plain '# bats test_tags=issue:12' 'size = "large",'
+bats "$ws" t same '# bats file_tags=size:small,timeout:short' 'size = "small", timeout = "short",'
+bats "$ws" t mixed '# bats test_tags=timeout:short'
+printf '# bats test_tags=timeout:eternal,size:medium\n@test "y" { true; }\n# bats test_tags=timeout:moderate,size:enormous\n@test "z" { true; }\n' >>"$ws/t/mixed.bats"
+before="$(cat "$ws/t/BUILD.bazel")"
+run "$ws" check
+[[ $code -eq 1 ]] || fail "size check: exit $code, want 1: $out"
+[[ "$out" == *"//t:quick lacks the size small, which the bats tags of quick.bats ask for (bats_size)"* ]] ||
+    fail "size check: output lacks the missing size: $out"
+[[ "$out" == *"//t:slow lacks the timeout long, which the bats tags of slow.bats ask for (bats_timeout)"* ]] ||
+    fail "size check: output lacks the different timeout: $out"
+[[ "$out" == *"//t:plain has the size large, which no bats tag of plain.bats asks for (bats_size)"* ]] ||
+    fail "size check: output lacks the left-over size: $out"
+[[ "$out" == *"4 target(s) that differ"* && "$out" != *"//t:same"* ]] || fail "size check: wrong count: $out"
+[[ "$(cat "$ws/t/BUILD.bazel")" == "$before" ]] || fail "size check: changed the BUILD file"
+run "$ws" fix
+[[ $code -eq 0 ]] || fail "size fix: exit $code: $out"
+[[ "$out" == *"//t:quick gets the size small from the bats tags of quick.bats (bats_size)"* ]] || fail "size fix: output: $out"
+[[ "$out" == *"//t:plain loses the size large, which no bats tag of plain.bats asks for (bats_size)"* ]] || fail "size fix: output: $out"
+[[ "$(attr_of "$ws" //t:quick size)" == "small" ]] || fail "size fix: //t:quick has size $(attr_of "$ws" //t:quick size)"
+[[ "$(attr_of "$ws" //t:quick timeout)" == "(missing)" ]] || fail "size fix: //t:quick has timeout $(attr_of "$ws" //t:quick timeout)"
+[[ "$(attr_of "$ws" //t:slow timeout)" == "long" ]] || fail "size fix: //t:slow has timeout $(attr_of "$ws" //t:slow timeout)"
+[[ "$(attr_of "$ws" //t:plain size)" == "(missing)" ]] || fail "size fix: //t:plain has size $(attr_of "$ws" //t:plain size)"
+[[ "$(attr_of "$ws" //t:mixed size)" == "enormous" ]] || fail "size fix: //t:mixed has size $(attr_of "$ws" //t:mixed size)"
+[[ "$(attr_of "$ws" //t:mixed timeout)" == "eternal" ]] || fail "size fix: //t:mixed has timeout $(attr_of "$ws" //t:mixed timeout)"
+[[ "$(tags_of "$ws" //t:quick)" == "(missing)" ]] || fail "size fix: //t:quick has tags $(tags_of "$ws" //t:quick)"
+run "$ws" check
+[[ $code -eq 0 && -z "$out" ]] || fail "size check after fix: exit $code: $out"
+
+# Only the directive that is there is used: with bats_size alone a timeout written by hand
+# stays, and a `timeout:` bats tag sets nothing. With neither, size and timeout are left alone.
+ws="$TEST_TMPDIR/size_only"
+new_ws "$ws"
+printf '# gazelle:bats_size size\n' >>"$ws/BUILD.bazel"
+bats "$ws" t a '# bats file_tags=timeout:long' 'size = "large", timeout = "short",'
+run "$ws" fix
+[[ $code -eq 0 ]] || fail "size only: exit $code: $out"
+[[ "$(attr_of "$ws" //t:a size)" == "(missing)" ]] || fail "size only: //t:a has size $(attr_of "$ws" //t:a size)"
+[[ "$(attr_of "$ws" //t:a timeout)" == "short" ]] || fail "size only: //t:a has timeout $(attr_of "$ws" //t:a timeout)"
+ws="$TEST_TMPDIR/size_none"
+new_ws "$ws"
+bats "$ws" t a '# bats file_tags=size:small' 'size = "large", timeout = "short",'
+run "$ws" check
+[[ $code -eq 0 && -z "$out" ]] || fail "no size directive: exit $code: $out"
+
+# `# keep` on the rule or on the attribute's line keeps a value written by hand; a `tags` line
+# with `# keep` keeps the tags and still lets the size be set.
+ws="$TEST_TMPDIR/size_keep"
+new_ws "$ws"
+printf '# gazelle:bats_size size\n# gazelle:bats_timeout timeout\n' >>"$ws/BUILD.bazel"
+mkdir -p "$ws/t"
+for n in on_rule on_attr on_tags; do printf '# bats file_tags=size:small\n@test "x" { true; }\n' >"$ws/t/$n.bats"; done
+cat >"$ws/t/BUILD.bazel" <<'BUILD'
+bats_test(  # keep
+    name = "on_rule",
+    size = "large",
+    srcs = ["on_rule.bats"],
+)
+
+bats_test(
+    name = "on_attr",
+    size = "large",  # keep
+    timeout = "long",
+    srcs = ["on_attr.bats"],
+)
+
+bats_test(
+    name = "on_tags",
+    srcs = ["on_tags.bats"],
+    tags = ["requires-network"],  # keep
+)
+BUILD
+run "$ws" fix
+[[ $code -eq 0 ]] || fail "size keep: exit $code: $out"
+[[ "$(attr_of "$ws" //t:on_rule size)" == "large" ]] || fail "size keep: //t:on_rule has size $(attr_of "$ws" //t:on_rule size)"
+[[ "$(attr_of "$ws" //t:on_attr size)" == "large" ]] || fail "size keep: //t:on_attr has size $(attr_of "$ws" //t:on_attr size)"
+[[ "$(attr_of "$ws" //t:on_attr timeout)" == "(missing)" ]] || fail "size keep: //t:on_attr has timeout $(attr_of "$ws" //t:on_attr timeout)"
+[[ "$(attr_of "$ws" //t:on_tags size)" == "small" ]] || fail "size keep: //t:on_tags has size $(attr_of "$ws" //t:on_tags size)"
+[[ "$(tags_of "$ws" //t:on_tags)" == "[requires-network]" ]] || fail "size keep: //t:on_tags has $(tags_of "$ws" //t:on_tags)"
+
+# A bats tag that names no size Bazel has stops both modes and changes nothing.
+ws="$TEST_TMPDIR/size_unknown"
+new_ws "$ws"
+printf '# gazelle:bats_size size\n# gazelle:bats_timeout timeout\n' >>"$ws/BUILD.bazel"
+bats "$ws" t a '# bats file_tags=size:tiny,timeout:short'
+before="$(cat "$ws/t/BUILD.bazel")"
+for m in check fix; do
+    run "$ws" "$m"
+    [[ $code -eq 1 ]] || fail "unknown size, $m: exit $code, want 1: $out"
+    [[ "$out" == *"//t:a: the bats tag size:tiny in a.bats names no size Bazel has: small, medium, large or enormous (bats_size)"* ]] ||
+        fail "unknown size, $m: output: $out"
+    [[ "$(cat "$ws/t/BUILD.bazel")" == "$before" ]] || fail "unknown size, $m: changed the BUILD file"
+done
+
+# A subpackage inherits the directive, replaces its prefix, or switches it off; a mapped kind
+# counts as bats_test.
+ws="$TEST_TMPDIR/size_packages"
+new_ws "$ws"
+printf '# gazelle:bats_size size\n# gazelle:map_kind bats_test my_bats_test //:defs.bzl\n' >>"$ws/BUILD.bazel"
+for d in in in/sub other off; do bats "$ws" "$d" a '# bats file_tags=size:small,weight:large'; done
+printf '# gazelle:bats_size weight\n%s\n' "$(cat "$ws/other/BUILD.bazel")" >"$ws/other/BUILD.bazel"
+printf '# gazelle:bats_size\n%s\n' "$(cat "$ws/off/BUILD.bazel")" >"$ws/off/BUILD.bazel"
+sed -i.bak 's/^bats_test(/my_bats_test(/' "$ws/in/sub/BUILD.bazel" && rm "$ws/in/sub/BUILD.bazel.bak"
+run "$ws" fix
+[[ $code -eq 0 ]] || fail "size packages: exit $code: $out"
+[[ "$(attr_of "$ws" //in:a size)" == "small" ]] || fail "size packages: //in:a has $(attr_of "$ws" //in:a size)"
+[[ "$(attr_of "$ws" //in/sub:a size)" == "small" ]] || fail "size packages: //in/sub:a has $(attr_of "$ws" //in/sub:a size)"
+[[ "$(attr_of "$ws" //other:a size)" == "large" ]] || fail "size packages: //other:a has $(attr_of "$ws" //other:a size)"
+[[ "$(attr_of "$ws" //off:a size)" == "(missing)" ]] || fail "size packages: //off:a has $(attr_of "$ws" //off:a size)"
 
 ((failed == 0)) && echo PASS
 exit $failed

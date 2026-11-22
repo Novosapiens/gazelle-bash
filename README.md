@@ -17,11 +17,11 @@ bazel_dep(name = "aspect_gazelle_prebuilt", version = "0.0.29")
 bazel_dep(name = "rules_shell", version = "0.10.0")
 bazel_dep(name = "bazel_lib", version = "3.8.0")
 
-bazel_dep(name = "gazelle_bash", version = "0.7.0")
+bazel_dep(name = "gazelle_bash", version = "0.8.0")
 git_override(  # until gazelle_bash is on the Bazel Central Registry
     module_name = "gazelle_bash",
     remote = "https://github.com/Novosapiens/gazelle-bash.git",
-    tag = "v0.7.0",
+    tag = "v0.8.0",
 )
 ```
 
@@ -376,7 +376,8 @@ unless its line ends with `# keep`; put shared entries in the macro instead.
 
 A hand-added attribute lasts only as long as its target. Once the target is created again, after its
 BUILD file was deleted or a merge kept the side without it, the attribute is gone and nothing reports it.
-For a tag a test needs, declare it in the test file instead: see "Tags from bats tags".
+For a tag, a size or a timeout a test needs, declare it in the test file instead: see "Tags from bats
+tags" and "Size and timeout from bats tags".
 
 Adding `map_kind` to a repo that already has generated targets works in one run with `gazelle_bash()`.
 Before Gazelle runs, each existing rule of the mapped kind in the directive's packages takes the new
@@ -468,6 +469,72 @@ Before adding the directive to a repo that already has tags written by hand, add
 to each test file, or the first run removes the tags the directive names from the targets whose files
 lack it. `gazelle.check` lists them first.
 
+## Size and timeout from bats tags
+
+A quick test should say so, or it waits under Bazel's default timeout of 300 seconds, and a slow one
+needs more. `bats_size` and `bats_timeout` let the test file say it with a bats tag, so the value is
+declared next to the test and comes back when the target is created again:
+
+```starlark
+# gazelle:bats_size size
+# gazelle:bats_timeout timeout
+```
+
+```bash
+# tests/layout.bats
+# bats file_tags=size:small
+
+@test "every plugin has a manifest" { … }
+```
+
+```starlark
+bats_test(
+    name = "layout",
+    size = "small",
+    srcs = ["layout.bats"],
+)
+```
+
+- The directive's value is the first part of the bats tag, before the `:`. With `bats_size size`, the
+  bats tag `size:small` sets `size = "small"`; with `bats_timeout timeout`, `timeout:short` sets
+  `timeout = "short"`.
+- The value is one Bazel has: `small`, `medium`, `large` or `enormous` for a size, and `short`,
+  `moderate`, `long` or `eternal` for a timeout. Any other, such as `size:tiny`, stops the run with an
+  error.
+- A `# bats file_tags=` or a `# bats test_tags=` line can hold the tag. When the tests of a file name
+  several values, the target gets the largest: one slow test makes the file slow.
+- Each directive applies to its package and those below it. One in a package below replaces it, and one
+  with no value switches it off there.
+- Each works on its own: with `bats_size` alone, a `timeout` written by hand is left alone.
+
+With the directive, the attribute is written from the test files alone, on every `bats_test` there and
+on the kind a `map_kind` maps it to:
+
+| On the target | In the test file | After `bazel run //:gazelle` |
+| --- | --- | --- |
+| no `size` | `size:small` | `size = "small"` added |
+| `size = "large"` | `size:small` | changed to `small` |
+| `size = "large"` | no `size:` tag | removed |
+
+To keep one written by hand, end its line with `# keep`, or put `# keep` on the rule:
+
+```starlark
+    size = "large",  # keep
+```
+
+Each change is reported, and `gazelle.check` names each target that differs and fails:
+
+```
+gazelle-bash: //tests:layout gets the size small from the bats tags of layout.bats (bats_size)
+gazelle-bash: //tests:fetch loses the timeout long, which no bats tag of fetch.bats asks for (bats_timeout)
+```
+
+Before adding a directive to a repo that already has sizes or timeouts written by hand, add the bats
+tag to each of those test files, or the first run removes them. `gazelle.check` lists them first.
+
+A macro that `map_kind` maps the tests to can set a default of its own, such as `timeout = "moderate"`.
+Bazel then uses that timeout whatever the `size`, so declare the timeout in the test file there.
+
 ## Settings
 
 Set these as directives in a BUILD file. Subpackages inherit them.
@@ -481,12 +548,14 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 | `# gazelle:bash_shellcheck_relative_to script` | `workspace` | What a `shellcheck source=` path is relative to |
 | `# gazelle:bash_generation_mode package` | `file` | `file`: one target per script. `package`: one library and one filegroup per directory, one target per test. See "One target per directory" |
 | `# gazelle:bats_tags structure=manual+structure,requires-network` | none | bats tags that become Bazel `tags` on a bats test, as `NAME` or `NAME=tag+tag`. A directive below replaces the one above. See "Tags from bats tags" |
+| `# gazelle:bats_size size` | none | The first part of the bats tag that sets a bats test's `size`: `size:small` gives `size = "small"`. See "Size and timeout from bats tags" |
+| `# gazelle:bats_timeout timeout` | none | The same for `timeout`: `timeout:short` gives `timeout = "short"` |
 | `# gazelle:gazelle_bash disabled` | enabled | Turn the extension off for a subtree |
 
 ## Limits
 
-- **Stale targets are removed, tags written from bats tags, and rules sorted, only through
-  `gazelle_bash()`.** Orion doesn't show an extension the existing BUILD file or let it choose where a
+- **Stale targets are removed, tags, sizes and timeouts written from bats tags, and rules sorted, only
+  through `gazelle_bash()`.** Orion doesn't show an extension the existing BUILD file or let it choose where a
   rule goes, and Gazelle's merge can't own some values of a `tags` list, so these run as separate steps
   before and after Gazelle, using [buildozer](https://github.com/bazelbuild/buildtools/tree/main/buildozer).
   With plain `aspect_gazelle()`, delete the target of a deleted script by hand.
@@ -586,6 +655,7 @@ that would break the repo's own generation. Each case can hold:
 | `map_kind` | Generated tests use the mapped macro, a subpackage inherits it, and an existing mapped target keeps its hand-added `tags` |
 | `map_kind_added` | `map_kind` added to existing generated targets: each takes the mapped kind with its `tags`, `size` and comments, including one with `# keep` and one in a subpackage; a stale one is removed instead; a hand-written `sh_binary` is untouched |
 | `bats_tags` | `bats_tags`: a new target gets its tags from `test_tags` on one test and from `file_tags`, one bats tag becoming two; an unnamed bats tag is not carried over; on an existing target a mapped tag is added and removed, a hand-added tag and one with `# keep` stay; a directive with no value switches it off in a subpackage |
+| `bats_size` | `bats_size` and `bats_timeout`: a new target gets its size from `file_tags` and the largest timeout its tests name; a tag with another first part sets nothing; on an existing target a size is added, a timeout changed and a size removed, and one with `# keep` stays |
 | `bazel_symlinks` | Bazel's `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<name>` links don't stop generation |
 | `multiline_string` | Lines inside multi-line `"…"`, `'…'` and `$'…'` strings are not read; an apostrophe in a comment is not a quote; when the tracker loses count, every line is read |
 | `ignore` | `# gazelle-bash: ignore` above a line or at its end, for `source`, `.` and `load` |
@@ -621,6 +691,9 @@ a left-over tag without changing anything, and a second run finds nothing; `file
 a line and one bats tag that becomes two; the last tag removed leaves no empty `tags`; `# keep` on a
 rule, above it, on `tags` and on one tag; a subpackage that inherits, replaces or switches off the
 directive; mapped kinds; directory arguments; excluded packages; names with a space; and no directive.
+For `bats_size` and `bats_timeout`: a value missing, different and left over, in check and fix mode; the
+largest of several values; one directive without the other; `# keep` on a rule, on the attribute and on
+`tags`; a value Bazel doesn't have; and a subpackage that inherits, replaces or switches off the directive.
 
 These tests, and the golden test, also run from a host repo with `gazelle_bash` overridden to a local
 checkout, eg `bazel test @gazelle_bash//wrapper:all --override_module=gazelle_bash=../gazelle-bash`.

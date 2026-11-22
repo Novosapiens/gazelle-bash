@@ -1,0 +1,5 @@
+gazelle-bash: //existing:added gets the size small from the bats tags of added.bats (bats_size)
+gazelle-bash: //existing:changed gets the timeout short from the bats tags of changed.bats (bats_timeout)
+gazelle-bash: //existing:removed loses the size small, which no bats tag of removed.bats asks for (bats_size)
+gazelle-bash: //fresh:quick gets the size small from the bats tags of quick.bats (bats_size)
+gazelle-bash: //fresh:slow gets the timeout long from the bats tags of slow.bats (bats_timeout)

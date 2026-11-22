@@ -947,6 +947,13 @@ aspect.orion_extension(
         # gazelle_bash() in //:defs.bzl (wrapper/bats_tags.sh), not by this file: Gazelle either
         # replaces a whole `tags` list or leaves it alone, and can't own some of its values.
         "bats_tags": aspect.Property(type = "[]string", default = []),
+        # The first part of the bats tags that set a bats test's `size` and `timeout`: with
+        # these, the bats tag `size:small` sets `size = "small"`, eg
+        #   # gazelle:bats_size size
+        #   # gazelle:bats_timeout timeout
+        # Read by the same step as bats_tags, so a value is also changed and removed.
+        "bats_size": aspect.Property(type = "string", default = ""),
+        "bats_timeout": aspect.Property(type = "string", default = ""),
     },
     prepare = _prepare,
     declare = _declare,
