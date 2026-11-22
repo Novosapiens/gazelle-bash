@@ -3,12 +3,29 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 # Used by gazelle_bash() in //:defs.bzl. Written by hand: //:gazelle excludes this directory.
 exports_files(
     [
+        "bats_tags.sh",
         "packages.sh",
         "prune_stale.sh",
         "run_gazelle.sh",
         "sort_rules.sh",
     ],
     visibility = ["//visibility:public"],
+)
+
+sh_test(
+    name = "bats_tags_test",
+    size = "small",
+    srcs = ["bats_tags_test.sh"],
+    data = [
+        "bats_tags.sh",
+        "packages.sh",
+        "@buildozer",
+    ],
+    env = {
+        "BUILDOZER": "$(rlocationpath @buildozer)",
+        "TAGS": "$(rlocationpath bats_tags.sh)",
+    },
+    deps = ["@bazel_tools//tools/bash/runfiles"],
 )
 
 sh_test(

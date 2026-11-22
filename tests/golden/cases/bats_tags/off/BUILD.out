@@ -1,0 +1,8 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+# gazelle:bats_tags
+
+bats_test(
+    name = "net",
+    srcs = ["net.bats"],
+)

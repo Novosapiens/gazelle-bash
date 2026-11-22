@@ -1,10 +1,11 @@
 """gazelle_bash(): Aspect's prebuilt Gazelle with shell.axl, plus removal of stale targets,
-kind renames for `map_kind`, and rules sorted by name.
+kind renames for `map_kind`, tags from bats tags, and rules sorted by name.
 
 Orion doesn't show an extension the existing BUILD file, so shell.axl can't remove a target
-whose file was deleted, or choose where a new rule goes. gazelle_bash() runs a prune step
-before Gazelle, which removes them, and a sort step after it, which puts each rule at its
-place by name.
+whose file was deleted, add one tag to a `tags` list written by hand, or choose where a new
+rule goes. gazelle_bash() runs a prune step before Gazelle, which removes them, and after it a
+tags step, which gives a bats test the tags `# gazelle:bats_tags` maps its bats tags to, and
+a sort step, which puts each rule at its place by name.
 """
 
 load("@aspect_gazelle_prebuilt//:def.bzl", "aspect_gazelle")
@@ -29,9 +30,10 @@ def _runner_impl(ctx):
             "@@RUNNER@@": _rlocationpath(ctx, runner),
             "@@PRUNE@@": _rlocationpath(ctx, ctx.file._prune),
             "@@SORT@@": _rlocationpath(ctx, ctx.file._sort),
+            "@@TAGS@@": _rlocationpath(ctx, ctx.file._tags),
         },
     )
-    files = [script, ctx.file._prune, ctx.file._sort, ctx.file._packages] + ctx.files._runfiles_lib
+    files = [script, ctx.file._prune, ctx.file._sort, ctx.file._tags, ctx.file._packages] + ctx.files._runfiles_lib
     runfiles = ctx.runfiles(files = files).merge_all([
         ctx.attr.runner[DefaultInfo].default_runfiles,
         ctx.attr._buildozer[DefaultInfo].default_runfiles,
@@ -49,6 +51,7 @@ _gazelle_bash_runner = rule(
         "_prune": attr.label(default = "//wrapper:prune_stale.sh", allow_single_file = True),
         "_runfiles_lib": attr.label(default = "@bazel_tools//tools/bash/runfiles"),
         "_sort": attr.label(default = "//wrapper:sort_rules.sh", allow_single_file = True),
+        "_tags": attr.label(default = "//wrapper:bats_tags.sh", allow_single_file = True),
         "_template": attr.label(default = "//wrapper:run_gazelle.sh", allow_single_file = True),
     },
 )
@@ -65,7 +68,11 @@ def gazelle_bash(name = "gazelle", languages = [], extensions = [], with_check =
     a kind a `map_kind` maps in its package takes the mapped kind, so adding `map_kind` to a repo
     with generated targets works. `name.check` reports both and fails instead.
 
-    After Gazelle runs, the rules of those kinds in each BUILD file are sorted by name, among
+    After Gazelle runs, each bats test in a package a `# gazelle:bats_tags` applies to gets the
+    tags the directive maps its file's bats tags to, and loses those it maps none to; tags the
+    directive doesn't name are left alone. `name.check` fails on a target whose tags differ.
+
+    Then the rules of those kinds in each BUILD file are sorted by name, among
     the places they hold, so a new rule goes where its name puts it, not at the end. A rule
     with `# keep` stays where it is. `name.check` fails on a BUILD file whose rules are out of
     order.

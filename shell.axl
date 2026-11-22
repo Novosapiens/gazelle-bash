@@ -941,6 +941,12 @@ aspect.orion_extension(
         # What a `# shellcheck source=path` is relative to: "workspace" (ShellCheck run from
         # the repo root, its default) or "script". `source=SCRIPTDIR/...` is always the script's.
         "bash_shellcheck_relative_to": aspect.Property(type = "string", default = "workspace"),
+        # bats tags that become Bazel `tags` on a bats test, each as NAME or NAME=tag+tag, eg
+        #   # gazelle:bats_tags structure=manual+structure,requires-network
+        # Declared here so Gazelle knows the directive. It is read by the tags step of
+        # gazelle_bash() in //:defs.bzl (wrapper/bats_tags.sh), not by this file: Gazelle either
+        # replaces a whole `tags` list or leaves it alone, and can't own some of its values.
+        "bats_tags": aspect.Property(type = "[]string", default = []),
     },
     prepare = _prepare,
     declare = _declare,

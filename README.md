@@ -38,8 +38,9 @@ gazelle_bash(
 ```
 
 `gazelle_bash()` is Aspect's `aspect_gazelle()` with `shell.axl` loaded, plus a step before it that
-removes the targets of deleted files (see "Deleted and renamed files") and one after it that sorts each
-BUILD file's rules by name (see "Rule order"). It takes the same arguments: add other Orion extensions
+removes the targets of deleted files (see "Deleted and renamed files") and two after it: one writes a
+bats test's `tags` from its bats tags (see "Tags from bats tags"), the other sorts each BUILD file's
+rules by name (see "Rule order"). It takes the same arguments: add other Orion extensions
 with `extensions`.
 
 Run it:
@@ -370,8 +371,12 @@ def my_bats_test(name, data = [], env = {}, **kwargs):
 
 The directive applies to its own package and every package below it. The macro must accept what the
 extension writes: `name`, `srcs` and `data`. Attributes added by hand to one target, such as
-`tags = ["manual"]`, survive regeneration. A hand-added entry in `data` does not, unless its line ends
-with `# keep`; put shared entries in the macro instead.
+`size = "small"` or `tags = ["exclusive"]`, survive regeneration. A hand-added entry in `data` does not,
+unless its line ends with `# keep`; put shared entries in the macro instead.
+
+A hand-added attribute lasts only as long as its target. Once the target is created again, after its
+BUILD file was deleted or a merge kept the side without it, the attribute is gone and nothing reports it.
+For a tag a test needs, declare it in the test file instead: see "Tags from bats tags".
 
 Adding `map_kind` to a repo that already has generated targets works in one run with `gazelle_bash()`.
 Before Gazelle runs, each existing rule of the mapped kind in the directive's packages takes the new
@@ -391,6 +396,78 @@ Removing `map_kind` again is not undone for you, because nothing then says `my_b
 bazel run @buildozer -- 'set kind bats_test' //...:%my_bats_test
 ```
 
+## Tags from bats tags
+
+A test that must not run everywhere needs a Bazel tag, such as `manual` or `requires-network`. bats has
+tags of its own, written in the test file. `bats_tags` names the bats tags that become Bazel `tags` on
+the test's target, so the tag is declared once, next to the test, and comes back when the target is
+created again:
+
+```starlark
+# gazelle:bats_tags structure=manual+structure,requires-network
+```
+
+```bash
+# tests/layout.bats
+# bats file_tags=structure
+
+@test "every plugin has a manifest" { … }
+```
+
+```starlark
+bats_test(
+    name = "layout",
+    srcs = ["layout.bats"],
+    tags = [
+        "manual",
+        "structure",
+    ],
+)
+```
+
+- Each entry is a bats tag. After `=` come the Bazel tags it becomes, joined by `+`; with no `=`, it
+  becomes the tag of the same name.
+- A bats tag the directive doesn't name is not carried over: most bats tags, such as `issue:123`, mean
+  nothing to Bazel.
+- A file has a bats tag when a `# bats file_tags=` or a `# bats test_tags=` line names it. bats tags one
+  test and Bazel a whole file, so one tagged test tags the target.
+- The directive applies to its package and those below it. One in a package below replaces it, and
+  `# gazelle:bats_tags` with no value switches it off there.
+
+The Bazel tags the directive names are then written from the test files alone, on every `bats_test`
+there, and on the kind a `map_kind` maps it to:
+
+| On the target | In the test file | After `bazel run //:gazelle` |
+| --- | --- | --- |
+| no `requires-network` | a bats tag that maps to it | added |
+| `requires-network` | no bats tag that maps to it | removed |
+| a tag the directive doesn't name, such as `exclusive` | anything | left alone |
+
+So with the directive above, `manual` on a bats test comes only from the bats tag `structure`: written
+by hand on another bats test, it is removed. To keep one by hand, end its line with `# keep`:
+
+```starlark
+    tags = [
+        "manual",  # keep
+    ],
+```
+
+A rule with `# keep` on its first line or in a comment line directly above, and a `tags` line that ends
+with `# keep`, are left alone entirely.
+
+Each change is reported:
+
+```
+gazelle-bash: //tests:layout gets the tags manual, structure from the bats tags of layout.bats (bats_tags)
+gazelle-bash: //tests:fetch loses the tag requires-network, which no bats tag of fetch.bats asks for (bats_tags)
+```
+
+`gazelle.check` doesn't change anything: it names each target whose tags differ and fails.
+
+Before adding the directive to a repo that already has tags written by hand, add the matching bats tag
+to each test file, or the first run removes the tags the directive names from the targets whose files
+lack it. `gazelle.check` lists them first.
+
 ## Settings
 
 Set these as directives in a BUILD file. Subpackages inherit them.
@@ -403,12 +480,14 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 | `# gazelle:bash_data_files docs/**,*.md` | none | Non-script files tests may depend on, as globs from the workspace root. Each match gets a filegroup |
 | `# gazelle:bash_shellcheck_relative_to script` | `workspace` | What a `shellcheck source=` path is relative to |
 | `# gazelle:bash_generation_mode package` | `file` | `file`: one target per script. `package`: one library and one filegroup per directory, one target per test. See "One target per directory" |
+| `# gazelle:bats_tags structure=manual+structure,requires-network` | none | bats tags that become Bazel `tags` on a bats test, as `NAME` or `NAME=tag+tag`. A directive below replaces the one above. See "Tags from bats tags" |
 | `# gazelle:gazelle_bash disabled` | enabled | Turn the extension off for a subtree |
 
 ## Limits
 
-- **Stale targets are removed, and rules sorted, only through `gazelle_bash()`.** Orion doesn't show an
-  extension the existing BUILD file or let it choose where a rule goes, so these run as separate steps
+- **Stale targets are removed, tags written from bats tags, and rules sorted, only through
+  `gazelle_bash()`.** Orion doesn't show an extension the existing BUILD file or let it choose where a
+  rule goes, and Gazelle's merge can't own some values of a `tags` list, so these run as separate steps
   before and after Gazelle, using [buildozer](https://github.com/bazelbuild/buildtools/tree/main/buildozer).
   With plain `aspect_gazelle()`, delete the target of a deleted script by hand.
 - **With plain `aspect_gazelle()`, adding `map_kind` fails** with "a target of kind bats_test with the
@@ -480,7 +559,7 @@ the declared dependencies are complete, because an undeclared file is not in the
 | `package_mode` | With `bash_generation_mode package`, one library target holds a script and the sibling it sources, and tests inside and outside the package pass with only that target |
 
 **Golden cases** (`tests/golden/cases/*`) are small workspaces that the real prebuilt Gazelle runs on,
-through `//:gazelle`, so the stale-target step runs first and the sort step last.
+through `//:gazelle`, so the stale-target step runs first and the tags and sort steps last.
 They cover what a live fixture can't: generation errors, BUILD files that exist beforehand, and inputs
 that would break the repo's own generation. Each case can hold:
 
@@ -506,6 +585,7 @@ that would break the repo's own generation. Each case can hold:
 | `path_dirs` | Commands run by bare name: after `run` and its options, `\|`, `&&`, `;`, `!`, `$( )`, assignments and `if`; a `.sh` command; two directories; not builtins, arguments, comments, system commands or libraries |
 | `map_kind` | Generated tests use the mapped macro, a subpackage inherits it, and an existing mapped target keeps its hand-added `tags` |
 | `map_kind_added` | `map_kind` added to existing generated targets: each takes the mapped kind with its `tags`, `size` and comments, including one with `# keep` and one in a subpackage; a stale one is removed instead; a hand-written `sh_binary` is untouched |
+| `bats_tags` | `bats_tags`: a new target gets its tags from `test_tags` on one test and from `file_tags`, one bats tag becoming two; an unnamed bats tag is not carried over; on an existing target a mapped tag is added and removed, a hand-added tag and one with `# keep` stay; a directive with no value switches it off in a subpackage |
 | `bazel_symlinks` | Bazel's `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<name>` links don't stop generation |
 | `multiline_string` | Lines inside multi-line `"…"`, `'…'` and `$'…'` strings are not read; an apostrophe in a comment is not a quote; when the tracker loses count, every line is read |
 | `ignore` | `# gazelle-bash: ignore` above a line or at its end, for `source`, `.` and `load` |
@@ -536,7 +616,13 @@ anything; a `load()`, a header comment, a rule of another kind and a rule with `
 rule's own comment moves with it; byte order and names with a space; mapped kinds; directory arguments;
 disabled packages; and a second run changes nothing.
 
-Both tests, and the golden test, also run from a host repo with `gazelle_bash` overridden to a local
+**The tags step on its own** is tested by `//wrapper:bats_tags_test`: check mode reports a missing and
+a left-over tag without changing anything, and a second run finds nothing; `file_tags`, several tags on
+a line and one bats tag that becomes two; the last tag removed leaves no empty `tags`; `# keep` on a
+rule, above it, on `tags` and on one tag; a subpackage that inherits, replaces or switches off the
+directive; mapped kinds; directory arguments; excluded packages; names with a space; and no directive.
+
+These tests, and the golden test, also run from a host repo with `gazelle_bash` overridden to a local
 checkout, eg `bazel test @gazelle_bash//wrapper:all --override_module=gazelle_bash=../gazelle-bash`.
 
 **The corpus** ([tests/corpus](tests/corpus)) runs the plugin on 24 open-source shell projects pinned to

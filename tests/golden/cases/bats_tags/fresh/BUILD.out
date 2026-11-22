@@ -1,0 +1,21 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+bats_test(
+    name = "net",
+    srcs = ["net.bats"],
+    tags = ["requires-network"],
+)
+
+bats_test(
+    name = "plain",
+    srcs = ["plain.bats"],
+)
+
+bats_test(
+    name = "structure",
+    srcs = ["structure.bats"],
+    tags = [
+        "manual",
+        "structure",
+    ],
+)
