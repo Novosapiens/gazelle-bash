@@ -1,0 +1,45 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+bats_test(
+    name = "asdf",
+    srcs = ["asdf.bats"],
+    data = [
+        "//bin:asdf_dispatcher",
+        "//lib/commands:command-plugin-add",
+    ],
+)
+
+bats_test(
+    name = "board",
+    srcs = ["board.bats"],
+    data = [
+        "//bin:board_dispatcher",
+        "//share/board:start_bin",
+        "//share/board:sync_bin",
+    ],
+)
+
+bats_test(
+    name = "fallback",
+    srcs = ["fallback.bats"],
+    data = [
+        "//bin:tool_bin",
+        "//bin:tool_dispatcher",
+    ],
+)
+
+bats_test(
+    name = "flag_first",
+    srcs = ["flag_first.bats"],
+    data = ["//bin:tool_bin"],
+)
+
+bats_test(
+    name = "tool",
+    srcs = ["tool.bats"],
+    data = [
+        "//bin:tool_dispatcher",
+        "//libexec:tool-sync_bin",
+        "//libexec:tool-version-file_bin",
+    ],
+)

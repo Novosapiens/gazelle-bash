@@ -1,0 +1,53 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "asdf_bin",
+    srcs = ["asdf"],
+    data = [
+        "//lib/commands:command-install",
+        "//lib/commands:command-plugin-add",
+        "//lib/commands:command-plugin-list",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "asdf_dispatcher",
+    srcs = ["asdf"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "board_bin",
+    srcs = ["board"],
+    data = [
+        "//share/board:start_bin",
+        "//share/board:sync_bin",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "board_dispatcher",
+    srcs = ["board"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "tool_bin",
+    srcs = ["tool"],
+    data = [
+        "//lib:common",
+        "//libexec:tool-start_bin",
+        "//libexec:tool-sync_bin",
+        "//libexec:tool-version-file_bin",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "tool_dispatcher",
+    srcs = ["tool"],
+    data = ["//lib:common"],
+    visibility = ["//:__subpackages__"],
+)

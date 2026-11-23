@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# gazelle-bash: dep ../libexec/
+exec "$(dirname "$0")/../libexec/tool-$1"

@@ -1,0 +1,19 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "tool_bin",
+    srcs = ["tool"],
+    data = [
+        "//tests/subcommands/lib:say",
+        "//tests/subcommands/libexec:tool-start_bin",
+        "//tests/subcommands/libexec:tool-sync_bin",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "tool_dispatcher",
+    srcs = ["tool"],
+    data = ["//tests/subcommands/lib:say"],
+    visibility = ["//:__subpackages__"],
+)

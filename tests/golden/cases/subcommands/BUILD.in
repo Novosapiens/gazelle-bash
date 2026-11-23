@@ -1,0 +1,3 @@
+# gazelle:bash_path_dirs bin
+# gazelle:bash_subcommands bin/tool=libexec/tool-{},bin/asdf=lib/commands/command-{}.bash,bin/board=share/board/{}
+# gazelle:bash_explain tests/tool.bats

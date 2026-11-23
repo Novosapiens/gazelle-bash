@@ -1,0 +1,1 @@
+# gazelle:bash_subcommands bin/tool=libexec/tool

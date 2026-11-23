@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Routes `tool <name>` to libexec/tool-<name>, the way rbenv does.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/say.sh"
+# gazelle-bash: dep ../libexec/
+command="${1:-}"
+[[ -x "$SCRIPT_DIR/../libexec/tool-$command" ]] || { say "no such command: $command"; exit 1; }
+shift
+exec "$SCRIPT_DIR/../libexec/tool-$command" "$@"

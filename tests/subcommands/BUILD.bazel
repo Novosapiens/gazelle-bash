@@ -1,0 +1,22 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+# gazelle:bash_path_dirs tests/subcommands/bin
+# gazelle:bash_subcommands tests/subcommands/bin/tool=tests/subcommands/libexec/tool-{}
+
+bats_test(
+    name = "all",
+    srcs = ["all.bats"],
+    data = [
+        "//tests/subcommands/bin:tool_bin",
+        "//tests/subcommands/bin:tool_dispatcher",
+    ],
+)
+
+bats_test(
+    name = "sync",
+    srcs = ["sync.bats"],
+    data = [
+        "//tests/subcommands/bin:tool_dispatcher",
+        "//tests/subcommands/libexec:tool-sync_bin",
+    ],
+)

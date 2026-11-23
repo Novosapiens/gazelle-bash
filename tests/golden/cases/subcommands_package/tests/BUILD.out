@@ -1,0 +1,10 @@
+load("@bazel_lib//lib:bats.bzl", "bats_test")
+
+bats_test(
+    name = "sync",
+    srcs = ["sync.bats"],
+    data = [
+        "//bin",
+        "//libexec",
+    ],
+)

@@ -1,0 +1,3 @@
+# gazelle:bash_path_dirs bin
+# gazelle:bash_subcommands bin/tool=libexec/tool-{}
+# gazelle:bash_generation_mode package
