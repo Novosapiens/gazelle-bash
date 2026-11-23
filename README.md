@@ -387,6 +387,10 @@ data = [
   `# gazelle-bash: dep ../libexec/`.
 - **Two files that run the same subcommand stop generation**, naming both. In two packages, Orion says the
   import "resolved to multiple targets".
+- **A script that runs the dispatcher again**, such as a library calling `"$ROOT/bin/tool" start`, must
+  declare the subcommand it runs, above that line: `# gazelle-bash: dep $ROOT/libexec/tool-start`. The
+  extension doesn't read a command a script runs, and the whole dispatcher used to cover it. Without the
+  comment, the tests that reach that line fail in the sandbox, naming the missing file.
 - **A subcommand that lists its siblings at runtime**, such as rbenv's `help` and `commands`, needs them in
   its own target. Without that its test fails in the sandbox. Declare them in that file with
   `# gazelle-bash: dep ./`.
