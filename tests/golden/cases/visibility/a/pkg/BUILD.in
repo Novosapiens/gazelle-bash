@@ -1,0 +1,2 @@
+# gazelle:bash_generation_mode package
+# gazelle:bash_visibility //a:__pkg__,//b:__subpackages__

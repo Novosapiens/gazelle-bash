@@ -77,6 +77,8 @@ but not their runfiles, and only `sh_library` passes on the files of what it dep
 To `bazel run` a script, write an `sh_binary` for it by hand.
 
 Libraries and filegroups are visible to `//:__subpackages__`, so any script in the repo can use them.
+Tests get no visibility: nothing depends on a test. To narrow who may depend on a package's targets,
+see "Visibility".
 
 Target names:
 
@@ -468,6 +470,30 @@ Before adding the directive to a repo that already has tags written by hand, add
 to each test file, or the first run removes the tags the directive names from the targets whose files
 lack it. `gazelle.check` lists them first.
 
+## Visibility
+
+Visibility says who may depend on a target. By default every library and filegroup gazelle-bash writes
+is visible to `//:__subpackages__`, the whole repo. To let only some packages depend on a package's
+targets, name them:
+
+```starlark
+# gazelle:bash_visibility //tests/repo:__pkg__,//ci:__subpackages__
+```
+
+- Each entry is a label, as in a rule's `visibility`.
+- The directive applies to its package and those below it. One in a package below replaces it, so
+  `# gazelle:bash_visibility //:__subpackages__` there restores the default.
+- Every library and filegroup there gets it: new ones, and ones already in the BUILD file, whose
+  `visibility` is replaced. So `gazelle.check` fails on a generated rule whose visibility differs.
+- Tests keep no visibility.
+
+`visibility` is generated like `srcs`, also with no directive: a visibility set by hand on a generated
+library or filegroup is replaced by the default. To keep one, end its line with `# keep`:
+
+```starlark
+    visibility = ["//tools:__pkg__"],  # keep
+```
+
 ## Settings
 
 Set these as directives in a BUILD file. Subpackages inherit them.
@@ -481,6 +507,7 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 | `# gazelle:bash_shellcheck_relative_to script` | `workspace` | What a `shellcheck source=` path is relative to |
 | `# gazelle:bash_generation_mode package` | `file` | `file`: one target per script. `package`: one library and one filegroup per directory, one target per test. See "One target per directory" |
 | `# gazelle:bats_tags structure=manual+structure,requires-network` | none | bats tags that become Bazel `tags` on a bats test, as `NAME` or `NAME=tag+tag`. A directive below replaces the one above. See "Tags from bats tags" |
+| `# gazelle:bash_visibility //tests:__subpackages__` | `//:__subpackages__` | Who may depend on the libraries and filegroups gazelle-bash writes, as labels. A directive below replaces the one above. See "Visibility" |
 | `# gazelle:gazelle_bash disabled` | enabled | Turn the extension off for a subtree |
 
 ## Limits
@@ -586,6 +613,8 @@ that would break the repo's own generation. Each case can hold:
 | `map_kind` | Generated tests use the mapped macro, a subpackage inherits it, and an existing mapped target keeps its hand-added `tags` |
 | `map_kind_added` | `map_kind` added to existing generated targets: each takes the mapped kind with its `tags`, `size` and comments, including one with `# keep` and one in a subpackage; a stale one is removed instead; a hand-written `sh_binary` is untouched |
 | `bats_tags` | `bats_tags`: a new target gets its tags from `test_tags` on one test and from `file_tags`, one bats tag becoming two; an unnamed bats tag is not carried over; on an existing target a mapped tag is added and removed, a hand-added tag and one with `# keep` stay; a directive with no value switches it off in a subpackage |
+| `visibility` | `bash_visibility`: a new library, filegroup and package-mode target get the named labels and a test gets none; an existing rule's visibility is replaced unless the line has `# keep`; a subpackage inherits it, and one with its own directive gets that one; no directive gives `//:__subpackages__` |
+| `visibility_invalid` | A `bash_visibility` entry that is not a label fails generation with a clear error |
 | `bazel_symlinks` | Bazel's `bazel-bin`, `bazel-out`, `bazel-testlogs` and `bazel-<name>` links don't stop generation |
 | `multiline_string` | Lines inside multi-line `"…"`, `'…'` and `$'…'` strings are not read; an apostrophe in a comment is not a quote; when the tracker loses count, every line is read |
 | `ignore` | `# gazelle-bash: ignore` above a line or at its end, for `source`, `.` and `load` |

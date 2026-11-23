@@ -1,0 +1,22 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+# gazelle:bash_generation_mode package
+# gazelle:bash_visibility //a:__pkg__,//b:__subpackages__
+
+sh_library(
+    name = "pkg",
+    srcs = ["z.sh"],
+    visibility = [
+        "//a:__pkg__",
+        "//b:__subpackages__",
+    ],
+)
+
+filegroup(
+    name = "pkg_files",
+    srcs = ["data.txt"],
+    visibility = [
+        "//a:__pkg__",
+        "//b:__subpackages__",
+    ],
+)

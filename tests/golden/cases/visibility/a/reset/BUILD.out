@@ -1,0 +1,9 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+# gazelle:bash_visibility //:__subpackages__
+
+sh_library(
+    name = "y",
+    srcs = ["y.sh"],
+    visibility = ["//:__subpackages__"],
+)

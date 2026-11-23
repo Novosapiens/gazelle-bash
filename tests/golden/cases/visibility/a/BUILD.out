@@ -1,0 +1,34 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# gazelle:bash_visibility //a:__pkg__
+
+sh_library(
+    name = "new",
+    srcs = ["new.sh"],
+    visibility = ["//a:__pkg__"],
+)
+
+sh_test(
+    name = "new_test",
+    srcs = ["new_test.sh"],
+)
+
+filegroup(
+    name = "notes_txt",
+    srcs = ["notes.txt"],
+    visibility = ["//a:__pkg__"],
+)
+
+# Written before the directive: takes its visibility.
+sh_library(
+    name = "old",
+    srcs = ["old.sh"],
+    visibility = ["//a:__pkg__"],
+)
+
+sh_library(
+    name = "pinned",
+    srcs = ["pinned.sh"],
+    visibility = ["//pinned:__pkg__"],  # keep
+)

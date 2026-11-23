@@ -1,0 +1,16 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+# gazelle:bash_visibility //a:__pkg__
+
+# Written before the directive: takes its visibility.
+sh_library(
+    name = "old",
+    srcs = ["old.sh"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "pinned",
+    srcs = ["pinned.sh"],
+    visibility = ["//pinned:__pkg__"],  # keep
+)

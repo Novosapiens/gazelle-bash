@@ -47,9 +47,12 @@ _PROVIDER = "shell"
 # "everything under dir/" is one import with `multiple = True`.
 _TREE = "shell_tree"
 
+# `visibility` is mergeable on the kinds that carry it, so a rule already in a BUILD file takes the
+# one `bash_visibility` names and `gazelle.check` fails on a rule whose visibility differs. Tests
+# get none: nothing depends on a test.
 aspect.gazelle_rule_kind("sh_library", {
     "From": "@rules_shell//shell:sh_library.bzl",
-    "MergeableAttrs": ["srcs"],
+    "MergeableAttrs": ["srcs", "visibility"],
     "ResolveAttrs": ["data"],
 })
 aspect.gazelle_rule_kind("sh_test", {
@@ -65,8 +68,11 @@ aspect.gazelle_rule_kind("bats_test", {
 
 # Native rule, registered so the symbols of generated filegroups are indexed.
 aspect.gazelle_rule_kind("filegroup", {
-    "MergeableAttrs": ["srcs"],
+    "MergeableAttrs": ["srcs", "visibility"],
 })
+
+# The visibility of the libraries and filegroups gazelle-bash writes, with no `bash_visibility`.
+_DEFAULT_VISIBILITY = ["//:__subpackages__"]
 
 # --- Shell words -------------------------------------------------------------
 
@@ -725,6 +731,14 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
 
     return imports
 
+def _visibility(values):
+    """The `bash_visibility` labels, or the default when the directive names none."""
+    labels = _list(values)
+    for label in labels:
+        if not (label.startswith("//") or label.startswith("@") or label.startswith(":")):
+            fail("gazelle-bash: bash_visibility entry must be a label such as //tests:__subpackages__, got: " + label)
+    return labels or _DEFAULT_VISIBILITY
+
 def _data_name(p):
     """Target name for a data file: `docs/a.md` -> `docs_a_md`, `NOTICE` -> `NOTICE_file`."""
     name = p.replace("/", "_").replace(".", "_")
@@ -760,8 +774,9 @@ def _declare(ctx):
     mode = ctx.properties["bash_generation_mode"]
     if mode not in ("file", "package"):
         fail("gazelle-bash: bash_generation_mode must be file or package, got: " + mode)
+    visibility = _visibility(ctx.properties["bash_visibility"])
     if mode == "package":
-        _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs)
+        _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs, visibility)
         return
 
     names = _target_names(scripts + bats)
@@ -782,7 +797,7 @@ def _declare(ctx):
             kind = "filegroup",
             attrs = {
                 "srcs": [p],
-                "visibility": ["//:__subpackages__"],
+                "visibility": visibility,
             },
             symbols = _symbols(_join(ctx.rel, p)),
         )
@@ -795,7 +810,7 @@ def _declare(ctx):
             "data": _imports(ctx, file, prefixes, roots, path_dirs, kind == "sh_test"),
         }
         if kind != "sh_test":
-            attrs["visibility"] = ["//:__subpackages__"]
+            attrs["visibility"] = visibility
 
         ctx.targets.add(
             name = names[file.path],
@@ -825,7 +840,7 @@ def _package_symbols(ctx, files):
                 symbols.append(s)
     return symbols
 
-def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs):
+def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs, visibility):
     """`bash_generation_mode package`: one `sh_library` for every library and command in the
     package, one filegroup for its `bash_data_files`, and one target per test.
 
@@ -878,7 +893,7 @@ def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs)
             kind = "filegroup",
             attrs = {
                 "srcs": data_files,
-                "visibility": ["//:__subpackages__"],
+                "visibility": visibility,
             },
             symbols = _package_symbols(ctx, data_files),
         )
@@ -895,7 +910,7 @@ def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs)
             attrs = {
                 "srcs": [f.path for f in libs],
                 "data": data,
-                "visibility": ["//:__subpackages__"],
+                "visibility": visibility,
             },
             symbols = _package_symbols(ctx, [f.path for f in libs]),
         )
@@ -947,6 +962,10 @@ aspect.orion_extension(
         # gazelle_bash() in //:defs.bzl (wrapper/bats_tags.sh), not by this file: Gazelle either
         # replaces a whole `tags` list or leaves it alone, and can't own some of its values.
         "bats_tags": aspect.Property(type = "[]string", default = []),
+        # Who may depend on the libraries and filegroups gazelle-bash writes, as labels. With none,
+        # `//:__subpackages__`. A package below sets it again, eg
+        #   # gazelle:bash_visibility //tests/repo:__pkg__,//ci:__pkg__
+        "bash_visibility": aspect.Property(type = "[]string", default = []),
     },
     prepare = _prepare,
     declare = _declare,

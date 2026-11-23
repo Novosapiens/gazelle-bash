@@ -1,0 +1,1 @@
+# gazelle:bash_visibility //:__subpackages__
