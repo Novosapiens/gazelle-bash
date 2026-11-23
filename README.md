@@ -67,7 +67,7 @@ One target per file, by default (see "One target per directory" for the other mo
 | --- | --- |
 | `*_test.sh` | `sh_test` |
 | Any other `*.sh` / `*.bash` | `sh_library` |
-| No extension, first line a `sh` or `bash` shebang (also through `env`) | `sh_library` |
+| No extension, first line a `sh` or `bash` shebang (also through `env`), or no shebang and a `# shellcheck shell=sh` or `shell=bash` before the first command | `sh_library` |
 | `*.bats` | `bats_test` (from `@bazel_lib//lib:bats.bzl`) |
 | A file matching `bash_data_files` | `filegroup` |
 
@@ -256,9 +256,29 @@ instead. With `# gazelle:bash_root_vars APP_ROOT=plugin`, `. "$APP_ROOT/lib/x.sh
 in every script.
 
 - **Literal path that matches no script:** generation fails, so a typo or a deleted library can't silently
-  drop a dependency.
+  drop a dependency. The error names the file and line, and `gazelle_bash()` adds what to do, picked by
+  what the path is:
+
+  ```
+  aspect-gazelle: Error running gazelle: Resolution Error: Import "examples/math.inc" (provider "shell") from "examples/math_test.sh:21" is an unknown dependency
+  gazelle-bash: examples/math_test.sh:21 needs examples/math.inc, which isn't a script, so it has no target. To depend on it, add # gazelle:bash_data_files **/*.inc to the root BUILD file.
+  ```
+
+  A path in a git submodule that isn't checked out gets `git submodule update --init <it>`. A path that
+  doesn't exist gets `# gazelle-bash: ignore`, or `# gazelle:exclude` for a folder of fixtures. A path a
+  comment names gets "fix the path in the comment".
 - **Path still containing `$`, a glob or a backtick:** it is skipped and the skip is printed with its file and
-  line. Declare it with a comment on the line above. No message is printed then.
+  line. Declare it with a comment on the line above. No message is printed then. At the end of the run,
+  `gazelle_bash()` sums up the skipped lines that a `bash_root_vars` entry would read, by the variable they
+  start with, most first:
+
+  ```
+  gazelle-bash: 476 skipped lines start with $PLUGIN_CORE_AVAILABLE_PATH (first: plugins/00_dokku-standard/subcommands/cleanup:4). If it holds a fixed directory of this repo, add # gazelle:bash_root_vars PLUGIN_CORE_AVAILABLE_PATH=<that directory, from the root> to read them.
+  ```
+
+  When one script in the repo sets the variable to its own directory, or one above, with an idiom such as
+  `APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"`, the line names that directory. System
+  variables such as `$HOME` are left out.
 - **`source name` with no slash, and no such file next to the script:** it is skipped and printed. Bash
   looks up a bare name on `PATH` first, so this is a tool's own library such as `virtualenvwrapper.sh`.
 - **A line the plugin should not read:** put `# gazelle-bash: ignore` on the line above, or at the end of
@@ -641,7 +661,7 @@ that would break the repo's own generation. Each case can hold:
 
 | Case | Pins |
 | --- | --- |
-| `extensionless` | Files with no extension: `sh`, `bash` and `env` shebangs get a target; Python, a late shebang and plain text don't; the `_bin` name, also next to `dup.sh` and `clash_bin.sh` |
+| `extensionless` | Files with no extension: `sh`, `bash` and `env` shebangs, and a leading `# shellcheck shell=bash`, get a target; Python, `shell=zsh`, a late shebang or directive, and plain text don't; the `_bin` name, also next to `dup.sh` and `clash_bin.sh` |
 | `heredoc` | `source` lines inside heredocs are ignored; `<<<`, `$((1 << 2))` and a stray `"a << b"` are not heredocs |
 | `missing_literal` | A literal path to no script fails generation with a clear error |
 | `path_forms` | Quoting, comments, `\|\|`/`;`, `. ./`, `dirname --`, `${VAR}`, `//` comments, `bash_dir_vars` (comma list), bats `load` forms, name collisions, skipped paths |

@@ -3,6 +3,7 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 # Used by gazelle_bash() in //:defs.bzl. Written by hand: //:gazelle excludes this directory.
 exports_files(
     [
+        "advise.sh",
         "bats_tags.sh",
         "packages.sh",
         "prune_stale.sh",
@@ -57,5 +58,14 @@ sh_test(
         "BUILDOZER": "$(rlocationpath @buildozer)",
         "SORT": "$(rlocationpath sort_rules.sh)",
     },
+    deps = ["@bazel_tools//tools/bash/runfiles"],
+)
+
+sh_test(
+    name = "advise_test",
+    size = "small",
+    srcs = ["advise_test.sh"],
+    data = ["advise.sh"],
+    env = {"ADVISE": "$(rlocationpath advise.sh)"},
     deps = ["@bazel_tools//tools/bash/runfiles"],
 )

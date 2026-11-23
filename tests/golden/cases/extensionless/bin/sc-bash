@@ -1,0 +1,2 @@
+# shellcheck shell=bash disable=2207
+_yarn() { :; }
