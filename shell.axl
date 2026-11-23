@@ -7,6 +7,9 @@ Started from aspect-starters/shell `.aspect/gazelle/shell.axl` (Apache-2.0), the
     still get one target each);
   * `source path` / `. path` lines, and bats `load name` lines, become `data`;
   * in a test, every `$VAR/path` whose VAR is listed in `bash_root_vars` becomes `data`;
+  * in a test, a command run by bare name from a `bash_path_dirs` directory becomes `data`,
+    and with `bash_subcommands`, `tool sync` depends on the dispatcher without its
+    subcommands and on the one file that runs `sync`;
   * `# gazelle-bash: dep <path>` (also spelled `# gazelle:sh_dynamic_dep` and
     `# gazelle:bats_data`) and `# shellcheck source=<path>` declare a dependency that
     cannot be read statically.
@@ -46,6 +49,17 @@ _PROVIDER = "shell"
 # Every dependable file also publishes each directory above it under this provider, so
 # "everything under dir/" is one import with `multiple = True`.
 _TREE = "shell_tree"
+
+# A file that runs a dispatcher's subcommand publishes `<dispatcher path> <name>` under this
+# provider (`bin/tool sync`), and a dispatcher publishes its own path under `_DISPATCHER` on a
+# target without its subcommands. A test that runs `tool sync` imports both. Each import falls
+# back to the whole dispatcher through a symbol the test's package adds, so a word no file
+# declares still gets a working dependency. See `_subcommand_imports`.
+_SUBCOMMAND = "shell_subcommand"
+_DISPATCHER = "shell_dispatcher"
+
+# How many words after a dispatcher are tried as its subcommand, longest first.
+_MAX_SUBCOMMAND_WORDS = 4
 
 aspect.gazelle_rule_kind("sh_library", {
     "From": "@rules_shell//shell:sh_library.bzl",
@@ -473,7 +487,8 @@ def _is_assignment(word):
     return bool(sep) and bool(name) and all([c in _NAME_CHARS and c not in ".+-" for c in name.elems()])
 
 def _commands(content):
-    """Returns the bare words in command position in `content`, each once, in order.
+    """Returns [(word, line_index, rest of the line after the word)] for each bare word in
+    command position in `content`, in order. A word can appear more than once.
 
     Command position is the start of a line, or after `|`, `&`, `;`, `(`, `)`, a backtick, `!`,
     a `{` standing alone, an assignment, or one of `_COMMAND_PREFIXES` (and, after `run`,
@@ -481,8 +496,10 @@ def _commands(content):
     builtins and keywords are left out. Full-line comments are not read; heredocs and
     strings are.
     """
-    found = {}
-    for line in content.split("\n"):
+    found = []
+    lines = content.split("\n")
+    for n in range(len(lines)):
+        line = lines[n]
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
@@ -512,11 +529,98 @@ def _commands(content):
                         after_run = False
                         if (word not in _BUILTINS and word[0] not in "-." and
                             all([ch in _NAME_CHARS for ch in word.elems()])):
-                            found[word] = True
+                            found.append((word, n, line[i:]))
             if c not in " \t":
                 expect = True
                 after_run = after_run and c == "!"
-    return found.keys()
+    return found
+
+def _following_words(rest):
+    """The plain words that start `rest`, up to `_MAX_SUBCOMMAND_WORDS`: the subcommand a
+    dispatcher may run. Stops at the end of the command and at the first word that is a flag,
+    quoted, or holds an expansion, since its value can't be read statically."""
+    for i in range(len(rest)):
+        if rest[i] in "|&;()`<>":
+            rest = rest[:i]
+            break
+    words = []
+    for word in rest.replace("\t", " ").split(" "):
+        if not word:
+            continue
+        if len(words) == _MAX_SUBCOMMAND_WORDS:
+            break
+        if word[0] in "-." or not all([ch in _NAME_CHARS for ch in word.elems()]):
+            break
+        words.append(word)
+    return words
+
+# --- Subcommands -------------------------------------------------------------
+
+def _subcommand_patterns(entries):
+    """Parses `bash_subcommands` entries `dispatcher=pattern` into
+    {dispatcher path: (pattern prefix, pattern suffix)}. Both are workspace-relative paths, and
+    the pattern holds one `{}`, which stands for the subcommand's words joined by `-`."""
+    patterns = {}
+    for entry in _list(entries):
+        dispatcher, sep, pattern = entry.partition("=")
+        dispatcher = _clean(dispatcher.strip())
+        pattern = pattern.strip()
+        prefix, brace, suffix = pattern.partition("{}")
+        if (not sep or not dispatcher or not brace or "{}" in suffix or "/" in suffix or
+            _clean(prefix + "x" + suffix) == None):
+            fail("gazelle-bash: bash_subcommands entry must be dispatcher=pattern, with one {} in the pattern's file name, inside the workspace, got: " + entry)
+        if dispatcher in patterns:
+            fail("gazelle-bash: bash_subcommands names %s twice" % dispatcher)
+        clean_prefix = _clean(prefix)
+        if prefix.endswith("/"):
+            clean_prefix += "/"
+        patterns[dispatcher] = (clean_prefix, suffix)
+    return patterns
+
+def _pattern_part(ws_path, pattern):
+    """The part of `ws_path` that stands for `{}` in `pattern`, or None if it doesn't match."""
+    prefix, suffix = pattern
+    if len(ws_path) <= len(prefix) + len(suffix) or not ws_path.startswith(prefix) or not ws_path.endswith(suffix):
+        return None
+    part = ws_path[len(prefix):len(ws_path) - len(suffix)]
+    return None if "/" in part else part
+
+def _declared_subcommands(content):
+    """The names listed by `# gazelle-bash: subcommands <name>...` lines, or None if there are none."""
+    names = None
+    for line in content.split("\n"):
+        s = line.strip()
+        if not s.startswith("#"):
+            continue
+        gb = _directive(s.lstrip("#").strip(), "gazelle-bash:")
+        arg = _directive(gb, "subcommands") if gb != None else None
+        if arg == None:
+            continue
+        if names == None:
+            names = []
+        names += [w for w in arg.replace("\t", " ").split(" ") if w]
+    return names
+
+def _subcommand_symbols(ws_path, content, patterns):
+    """Symbols for a file that runs a dispatcher's subcommands: `<dispatcher> <name>` for each
+    name its `subcommands` comment lists, else for the name its path gives through the pattern."""
+    symbols = []
+    for dispatcher, pattern in patterns.items():
+        part = _pattern_part(ws_path, pattern)
+        if part == None or ws_path == dispatcher:
+            continue
+        names = _declared_subcommands(content)
+        for name in (names if names != None else [part]):
+            symbols.append(aspect.Symbol(id = dispatcher + " " + name, provider = _SUBCOMMAND))
+    return symbols
+
+def _is_subcommand_dep(imp, pattern):
+    """True if a dispatcher's import `imp` is one of its subcommands: a file the pattern matches,
+    or a directory tree at or under the pattern's directory."""
+    if imp.provider == _TREE:
+        pattern_dir = pattern[0].rpartition("/")[0] or "."
+        return imp.id == pattern_dir or pattern_dir == "." or imp.id.startswith(pattern_dir + "/")
+    return imp.provider == _PROVIDER and _pattern_part(imp.id, pattern) != None
 
 # --- Globs -------------------------------------------------------------------
 
@@ -633,11 +737,38 @@ def _symbols(ws_path, tree = True):
         parent = parent.rpartition("/")[0]
     return symbols
 
-def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = {}):
+def _subcommand_imports(ctx, dispatcher, words, registered):
+    """The imports of a test that runs `<dispatcher> <words...>`, and the fallbacks they need.
+
+    The test imports `<dispatcher> <all words joined by ->` and the dispatcher's own target. Orion
+    looks an import up among the targets' symbols first, so a file that runs that subcommand wins.
+    When none does, it takes a symbol this package adds: each subcommand name falls back to the
+    one a word shorter (`plugin-add-x`, `plugin-add`, `plugin`), the last to the whole dispatcher,
+    and the dispatcher's own target to the whole dispatcher too. Like rules_python, the most
+    specific name that exists wins, and a word that names no subcommand still gets a dependency.
+    `registered` drops symbols this package already added.
+    """
+    ids = [dispatcher + " " + "-".join(words[:k]) for k in range(len(words), 0, -1)]
+    fallbacks = []
+    for i in range(len(ids)):
+        if i + 1 < len(ids):
+            fallbacks.append((ids[i], _SUBCOMMAND, aspect.Import(id = ids[i + 1], provider = _SUBCOMMAND)))
+        else:
+            fallbacks.append((ids[i], _SUBCOMMAND, aspect.Import(id = dispatcher, provider = _PROVIDER)))
+    fallbacks.append((dispatcher, _DISPATCHER, aspect.Import(id = dispatcher, provider = _PROVIDER)))
+    for id, provider, target in fallbacks:
+        if (id, provider) not in registered:
+            registered[(id, provider)] = True
+            ctx.add_symbol(id = id, provider_type = provider, label = target)
+    return [(ids[0], _SUBCOMMAND), (dispatcher, _DISPATCHER)]
+
+def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = {}, subcommands = {}, registered = None, explain = {}):
     """Collects `aspect.Import`s for every statically readable dependency of `file`.
 
     `seen` is shared between calls to drop duplicates across files of one target. `own` holds
     the workspace paths of the files in the target itself; a file path in it is not imported.
+    `subcommands` is the parsed `bash_subcommands`, and `registered` the fallback symbols this
+    package added for them. A file in `explain` prints why it gets each dependency.
     """
     file_path = _join(ctx.rel, file.path)
     script_dir = file_path.rpartition("/")[0]
@@ -646,17 +777,24 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
     content = file.query_results["content"]
     if seen == None:
         seen = {}
+    if registered == None:
+        registered = {}
     imports = []
+    explaining = file_path in explain
 
-    def add(resolved, optional):
+    def add(resolved, optional, why = "", provider = None):
         id, tree = resolved
-        if (id, tree) in seen or (not tree and id in own):
+        if provider == None:
+            provider = _TREE if tree else _PROVIDER
+        if (id, provider) in seen or (provider == _PROVIDER and id in own):
             return
-        seen[(id, tree)] = True
-        if tree:
+        seen[(id, provider)] = True
+        if explaining and why:
+            print("gazelle-bash: explain %s: %s" % (file_path, why))
+        if provider == _TREE:
             imports.append(aspect.Import(id = id, provider = _TREE, multiple = True, optional = optional, src = file.path))
         else:
-            imports.append(aspect.Import(id = id, provider = _PROVIDER, optional = optional, src = file.path))
+            imports.append(aspect.Import(id = id, provider = provider, optional = optional, src = file.path))
 
     def skipped(kind, line, text):
         print("gazelle-bash: %s:%d: skipped %s path that cannot be read statically: %s" % (file_path, line + 1, kind, text))
@@ -701,7 +839,8 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
             if line not in covered:
                 skipped(kind, line, raw.strip())
             continue
-        add(resolved, optional = False)
+        what = "everything under " + resolved[0] if resolved[1] else resolved[0]
+        add(resolved, optional = False, why = "line %d: %s %s: %s" % (line + 1, kind, raw.strip(), what))
 
     # A test also depends on every `$ROOT_VAR/path` it mentions. These are optional: a test
     # may name a path it creates itself, and the sandbox catches a real one left undeclared.
@@ -712,16 +851,40 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
                 if line not in covered:
                     skipped("reference", line, word)
                 continue
-            add(resolved, optional = True)
+            why = "line %d: reference %s: %s, if it exists" % (line + 1, word, resolved[0])
+            add(resolved, optional = True, why = why)
             if not resolved[1]:
                 add((resolved[0], True), optional = True)  # the path may be a directory
 
     # A test also depends on each command it runs by bare name, when a `bash_path_dirs`
     # directory holds a file of that name. Optional: most such words are system commands.
+    # A dispatcher that `bash_subcommands` names gets the subcommand the next words run.
     if is_test and path_dirs:
-        for word in _commands(content):
+        for word, line, rest in _commands(content):
             for d in path_dirs:
-                add((_join(d, word), False), optional = True)
+                command = _join(d, word)
+                words = _following_words(rest) if command in subcommands else []
+                if not words:
+                    why = "line %d: command %s: %s, if it exists" % (line + 1, word, command)
+                    if command in subcommands:
+                        why = "line %d: command %s with no subcommand that can be read: the whole %s" % (line + 1, word, command)
+                    add((command, False), optional = True, why = why)
+                    continue
+                said = " ".join([word] + words)
+                for id, provider in _subcommand_imports(ctx, command, words, registered):
+                    if provider == _SUBCOMMAND:
+                        shorter = ", then one word shorter, down to one word," if len(words) > 1 else ""
+                        why = "line %d: %s: the file that runs subcommand %s of %s%s else the whole %s" % (
+                            line + 1,
+                            said,
+                            "-".join(words),
+                            command,
+                            shorter or ",",
+                            command,
+                        )
+                    else:
+                        why = "line %d: %s: %s without its subcommands, else the whole %s" % (line + 1, said, command, command)
+                    add((id, False), optional = True, why = why, provider = provider)
 
     return imports
 
@@ -760,13 +923,39 @@ def _declare(ctx):
     mode = ctx.properties["bash_generation_mode"]
     if mode not in ("file", "package"):
         fail("gazelle-bash: bash_generation_mode must be file or package, got: " + mode)
+    # The keyword arguments of `_imports` that come from the package's settings.
+    opts = {
+        "subcommands": _subcommand_patterns(ctx.properties["bash_subcommands"]),
+        "registered": {},
+        "explain": {_clean(p): True for p in _list(ctx.properties["bash_explain"])},
+    }
     if mode == "package":
-        _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs)
+        _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs, opts)
         return
 
     names = _target_names(scripts + bats)
 
     used = {name: p for p, name in names.items()}
+    dispatchers = {}  # target name of each dispatcher's own target -> its file
+    for file in scripts:
+        if _join(ctx.rel, file.path) in opts["subcommands"] and not file.path.endswith("_test.sh"):
+            name = _stem(path.base(file.path)).removesuffix("_bin") + "_dispatcher"
+            if name in used:
+                fail("gazelle-bash: %s: %s and %s would both get the target name %s; rename one" % (
+                    ctx.rel or ".",
+                    used[name],
+                    file.path,
+                    name,
+                ))
+            used[name] = file.path
+            dispatchers[file.path] = name
+    # A script no longer named by `bash_subcommands` loses the target it had as a dispatcher.
+    # Orion removes only a rule of a kind this extension registered, and never one marked `# keep`.
+    for file in scripts:
+        name = _stem(path.base(file.path)).removesuffix("_bin") + "_dispatcher"
+        if file.path not in dispatchers and name not in used:
+            ctx.targets.remove(name)
+    subcommand_owner = {}  # subcommand symbol id -> the file that declares it
     for p in data_files:
         name = _data_name(p)
         if name in used:
@@ -789,20 +978,49 @@ def _declare(ctx):
 
     for file in scripts:
         kind = "sh_test" if file.path.endswith("_test.sh") else "sh_library"
+        ws_path = _join(ctx.rel, file.path)
 
+        data = _imports(ctx, file, prefixes, roots, path_dirs, kind == "sh_test", **opts)
         attrs = {
             "srcs": [file.path],
-            "data": _imports(ctx, file, prefixes, roots, path_dirs, kind == "sh_test"),
+            "data": data,
         }
         if kind != "sh_test":
             attrs["visibility"] = ["//:__subpackages__"]
+
+        symbols = _symbols(ws_path, tree = kind != "sh_test")
+        if kind != "sh_test":
+            for s in _subcommand_symbols(ws_path, file.query_results["content"], opts["subcommands"]):
+                if s.id in subcommand_owner:
+                    fail("gazelle-bash: %s and %s both run subcommand %s; list it in one file's `# gazelle-bash: subcommands` comment" % (
+                        _join(ctx.rel, subcommand_owner[s.id]),
+                        ws_path,
+                        s.id,
+                    ))
+                subcommand_owner[s.id] = file.path
+                symbols.append(s)
 
         ctx.targets.add(
             name = names[file.path],
             kind = kind,
             attrs = attrs,
-            symbols = _symbols(_join(ctx.rel, file.path), tree = kind != "sh_test"),
+            symbols = symbols,
         )
+
+        # The dispatcher on its own: what it sources, without the subcommands it runs. A test
+        # that runs one subcommand depends on this and on that subcommand's file.
+        if file.path in dispatchers:
+            pattern = opts["subcommands"][ws_path]
+            ctx.targets.add(
+                name = dispatchers[file.path],
+                kind = "sh_library",
+                attrs = {
+                    "srcs": [file.path],
+                    "data": [imp for imp in data if not _is_subcommand_dep(imp, pattern)],
+                    "visibility": ["//:__subpackages__"],
+                },
+                symbols = [aspect.Symbol(id = ws_path, provider = _DISPATCHER)],
+            )
 
     for file in bats:
         ctx.targets.add(
@@ -810,7 +1028,7 @@ def _declare(ctx):
             kind = "bats_test",
             attrs = {
                 "srcs": [file.path],
-                "data": _imports(ctx, file, prefixes, roots, path_dirs, True),
+                "data": _imports(ctx, file, prefixes, roots, path_dirs, True, **opts),
             },
         )
 
@@ -825,7 +1043,7 @@ def _package_symbols(ctx, files):
                 symbols.append(s)
     return symbols
 
-def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs):
+def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs, opts):
     """`bash_generation_mode package`: one `sh_library` for every library and command in the
     package, one filegroup for its `bash_data_files`, and one target per test.
 
@@ -888,7 +1106,16 @@ def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs)
         seen = {}
         data = []
         for f in libs:
-            data += _imports(ctx, f, prefixes, roots, path_dirs, False, seen = seen, own = own)
+            data += _imports(ctx, f, prefixes, roots, path_dirs, False, seen = seen, own = own, **opts)
+        # One target holds every subcommand here, so a test of one of them gains nothing, but
+        # the symbols keep it working. A dispatcher gets no target of its own in this mode.
+        symbols = _package_symbols(ctx, [f.path for f in libs])
+        taken_ids = {}
+        for f in libs:
+            for s in _subcommand_symbols(_join(ctx.rel, f.path), f.query_results["content"], opts["subcommands"]):
+                if s.id not in taken_ids:
+                    taken_ids[s.id] = True
+                    symbols.append(s)
         ctx.targets.add(
             name = lib_name,
             kind = "sh_library",
@@ -897,13 +1124,13 @@ def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs)
                 "data": data,
                 "visibility": ["//:__subpackages__"],
             },
-            symbols = _package_symbols(ctx, [f.path for f in libs]),
+            symbols = symbols,
         )
 
     for f in tests:
         attrs = {
             "srcs": [f.path],
-            "data": _imports(ctx, f, prefixes, roots, path_dirs, True),
+            "data": _imports(ctx, f, prefixes, roots, path_dirs, True, **opts),
         }
         if f.path.endswith(".bats"):
             ctx.targets.add(name = names[f.path], kind = "bats_test", attrs = attrs)
@@ -938,6 +1165,17 @@ aspect.orion_extension(
         # match gets a filegroup of its own, eg
         #   # gazelle:bash_data_files docs/**,*.md,tests/fixtures/**
         "bash_data_files": aspect.Property(type = "[]string", default = []),
+        # Dispatchers whose subcommands are files of their own, as dispatcher=pattern from the
+        # workspace root. `{}` stands for the subcommand, its words joined by `-`. A test that
+        # runs `tool sync` depends on the dispatcher without its subcommands and on the file
+        # that runs `sync`, eg
+        #   # gazelle:bash_subcommands bin/tool=libexec/tool-{},bin/asdf=lib/commands/command-{}.bash
+        # A file the pattern matches can name the subcommands it runs instead, eg
+        #   # gazelle-bash: subcommands next start
+        "bash_subcommands": aspect.Property(type = "[]string", default = []),
+        # Files, from the workspace root, that print why they get each dependency, eg
+        #   # gazelle:bash_explain tests/sync.bats
+        "bash_explain": aspect.Property(type = "[]string", default = []),
         # What a `# shellcheck source=path` is relative to: "workspace" (ShellCheck run from
         # the repo root, its default) or "script". `source=SCRIPTDIR/...` is always the script's.
         "bash_shellcheck_relative_to": aspect.Property(type = "string", default = "workspace"),

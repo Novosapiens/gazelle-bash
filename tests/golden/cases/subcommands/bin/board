@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# neev-style: a table maps each command to a group file.
+# gazelle-bash: dep ../share/board/
+case "$1" in next | start) group=start ;; *) group=$1 ;; esac
+exec "$(dirname "$0")/../share/board/$group" "$@"

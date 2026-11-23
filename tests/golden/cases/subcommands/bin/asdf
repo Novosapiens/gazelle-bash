@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# asdf-style: `asdf plugin add` runs lib/commands/command-plugin-add.bash.
+# gazelle-bash: dep ../lib/commands/
+exec "$(dirname "$0")/../lib/commands/command-$1-$2.bash" "${@:3}"

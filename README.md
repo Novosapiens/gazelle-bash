@@ -346,6 +346,70 @@ DEBUG=1 gh-board          # after assignments, and after if, then, do, exec, com
 A file can only be depended on if it has a target: a script, or a file that matches `bash_data_files`. Each
 directory holding such files gets a BUILD file.
 
+### Subcommands of a dispatcher
+
+A dispatcher is an entry script that only routes `tool <name>` to a file per subcommand, the way rbenv runs
+`libexec/rbenv-<name>`. Its target depends on every subcommand, so a test that runs `tool sync` would
+rerun after a change to any of them. Name the dispatcher and where its subcommands are:
+
+```starlark
+# gazelle:bash_subcommands bin/tool=libexec/tool-{}
+```
+
+Then a test that runs `tool sync --dry-run` depends on the dispatcher without its subcommands and on the
+one file that runs `sync`:
+
+```starlark
+data = [
+    "//bin:tool_dispatcher",    # bin/tool and what it sources, generated next to tool_bin
+    "//libexec:tool-sync_bin",
+],
+```
+
+- The pattern is a path from the workspace root with one `{}` in the file name. `{}` stands for the
+  subcommand, its words joined by `-`: with `bin/asdf=lib/commands/command-{}.bash`, `asdf plugin add x`
+  runs `lib/commands/command-plugin-add.bash`.
+- **The most specific subcommand that exists wins**, as in rules_python's Gazelle plugin: `asdf plugin add x`
+  tries `plugin-add-x`, then `plugin-add`, then `plugin`, then the whole dispatcher.
+- **A file can run several subcommands, or ones its name doesn't give.** List them in the file, and its
+  name no longer counts:
+
+  ```bash
+  # libexec/board/start, which runs `board next` and `board start`
+  # gazelle-bash: subcommands next start
+  ```
+
+- The subcommand is the plain words after the dispatcher, up to the first flag, quoted word or `$`.
+  These depend on the whole dispatcher, which is correct but coarse: a bare `tool`, a flag first
+  (`tool --help`, `tool -v sync`), a word that can't be read (`tool "$cmd"`), and a word no file runs.
+- The dispatcher's own target, `<name>_dispatcher`, keeps what the dispatcher sources and drops what the
+  pattern covers: files the pattern matches, and a directory at or under the pattern's directory, such as
+  `# gazelle-bash: dep ../libexec/`.
+- **Two files that run the same subcommand stop generation**, naming both. In two packages, Orion says the
+  import "resolved to multiple targets".
+- **A subcommand that lists its siblings at runtime**, such as rbenv's `help` and `commands`, needs them in
+  its own target. Without that its test fails in the sandbox. Declare them in that file with
+  `# gazelle-bash: dep ./`.
+- **A wrong `subcommands` comment** gives a test the wrong file, and the test fails in the sandbox. A
+  missing one only costs the finer dependency.
+- In `package` mode, the subcommands of a directory share one target, so a test gains nothing. The
+  dispatcher gets no `_dispatcher` target there, and its tests depend on its whole package.
+
+Set the directive in a BUILD file above both the dispatcher and its subcommands, such as the root one.
+The dispatcher must be in a `bash_path_dirs` directory. If another of those directories also holds a
+`tool`, a test still depends on that one as a whole.
+
+To see why a test gets each dependency, list it in `bash_explain`. Generation then prints one line per
+dependency, with the line of the test it comes from:
+
+```starlark
+# gazelle:bash_explain tests/sync.bats
+```
+
+```
+gazelle-bash: explain tests/sync.bats: line 2: tool sync: the file that runs subcommand sync of bin/tool, else the whole bin/tool
+```
+
 ## Shared settings for tests
 
 To give every test the same extra settings, such as an `env` value, a tool in `data` or a `size`, write a
@@ -478,6 +542,8 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 | `# gazelle:bash_root_vars APP_ROOT=plugin,REPO=.` | none | Variables that hold a fixed directory, as `NAME=path` from the workspace root (`.` is the root) |
 | `# gazelle:bash_path_dirs plugin/bin,tests/helpers` | none | Directories that tests put on `PATH`. A test depends on the commands it runs by bare name from them |
 | `# gazelle:bash_data_files docs/**,*.md` | none | Non-script files tests may depend on, as globs from the workspace root. Each match gets a filegroup |
+| `# gazelle:bash_subcommands bin/tool=libexec/tool-{}` | none | Dispatchers whose subcommands are files of their own, as `dispatcher=pattern` from the workspace root. A test depends on the subcommand it runs, not on all of them. See "Subcommands of a dispatcher" |
+| `# gazelle:bash_explain tests/sync.bats` | none | Files, from the workspace root, that print why they get each dependency |
 | `# gazelle:bash_shellcheck_relative_to script` | `workspace` | What a `shellcheck source=` path is relative to |
 | `# gazelle:bash_generation_mode package` | `file` | `file`: one target per script. `package`: one library and one filegroup per directory, one target per test. See "One target per directory" |
 | `# gazelle:bats_tags structure=manual+structure,requires-network` | none | bats tags that become Bazel `tags` on a bats test, as `NAME` or `NAME=tag+tag`. A directive below replaces the one above. See "Tags from bats tags" |

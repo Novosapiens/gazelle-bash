@@ -1,0 +1,19 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+sh_library(
+    name = "command-install",
+    srcs = ["command-install.bash"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "command-plugin-add",
+    srcs = ["command-plugin-add.bash"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "command-plugin-list",
+    srcs = ["command-plugin-list.bash"],
+    visibility = ["//:__subpackages__"],
+)

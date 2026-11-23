@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# gazelle-bash: subcommands next start
+echo "$1"
