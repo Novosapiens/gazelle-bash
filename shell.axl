@@ -688,10 +688,13 @@ def _prepare(ctx):
     )
 
 def _is_shell_shebang(content):
-    """True if the first line runs sh or bash, directly or through `env`."""
-    first = content.split("\n", 1)[0].strip()
+    """True if the file says it is sh or bash: a first line that runs one, directly or through
+    `env`, or, with no shebang, a `# shellcheck shell=sh` or `shell=bash` directive in the
+    comments before the first command, which ShellCheck reads as the shell of the whole file."""
+    lines = content.split("\n")
+    first = lines[0].strip()
     if not first.startswith("#!"):
-        return False
+        return _shellcheck_shell(lines) in ("sh", "bash")
     words = [w for w in first[2:].replace("\t", " ").split(" ") if w]
     if not words:
         return False
@@ -700,6 +703,22 @@ def _is_shell_shebang(content):
         args = [w for w in words[1:] if not w.startswith("-")]
         interpreter = path.base(args[0]) if args else ""
     return interpreter in ("sh", "bash")
+
+def _shellcheck_shell(lines):
+    """The `shell=` of a `# shellcheck` directive in the leading comments, or ""."""
+    for line in lines:
+        s = line.strip()
+        if not s:
+            continue
+        if not s.startswith("#"):
+            return ""
+        sc = _directive(s.lstrip("#").strip(), "shellcheck")
+        if sc == None:
+            continue
+        for word in sc.replace("\t", " ").split(" "):
+            if word.startswith("shell="):
+                return word[len("shell="):]
+    return ""
 
 def _stem(base):
     """Target name for a file: its name without extension. A file with no extension gets a
@@ -782,8 +801,10 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
     imports = []
     explaining = file_path in explain
 
-    def add(resolved, optional, why = "", provider = None):
+    def add(resolved, optional, why = "", provider = None, line = None):
+        """`line` is the 0-based line the dependency comes from, named in Orion's messages."""
         id, tree = resolved
+        src = file_path if line == None else "%s:%d" % (file_path, line + 1)
         if provider == None:
             provider = _TREE if tree else _PROVIDER
         if (id, provider) in seen or (provider == _PROVIDER and id in own):
@@ -792,9 +813,9 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
         if explaining and why:
             print("gazelle-bash: explain %s: %s" % (file_path, why))
         if provider == _TREE:
-            imports.append(aspect.Import(id = id, provider = _TREE, multiple = True, optional = optional, src = file.path))
+            imports.append(aspect.Import(id = id, provider = _TREE, multiple = True, optional = optional, src = src))
         else:
-            imports.append(aspect.Import(id = id, provider = provider, optional = optional, src = file.path))
+            imports.append(aspect.Import(id = id, provider = provider, optional = optional, src = src))
 
     def skipped(kind, line, text):
         print("gazelle-bash: %s:%d: skipped %s path that cannot be read statically: %s" % (file_path, line + 1, kind, text))
@@ -840,7 +861,7 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
                 skipped(kind, line, raw.strip())
             continue
         what = "everything under " + resolved[0] if resolved[1] else resolved[0]
-        add(resolved, optional = False, why = "line %d: %s %s: %s" % (line + 1, kind, raw.strip(), what))
+        add(resolved, optional = False, why = "line %d: %s %s: %s" % (line + 1, kind, raw.strip(), what), line = line)
 
     # A test also depends on every `$ROOT_VAR/path` it mentions. These are optional: a test
     # may name a path it creates itself, and the sandbox catches a real one left undeclared.
@@ -852,9 +873,9 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
                     skipped("reference", line, word)
                 continue
             why = "line %d: reference %s: %s, if it exists" % (line + 1, word, resolved[0])
-            add(resolved, optional = True, why = why)
+            add(resolved, optional = True, why = why, line = line)
             if not resolved[1]:
-                add((resolved[0], True), optional = True)  # the path may be a directory
+                add((resolved[0], True), optional = True, line = line)  # the path may be a directory
 
     # A test also depends on each command it runs by bare name, when a `bash_path_dirs`
     # directory holds a file of that name. Optional: most such words are system commands.
@@ -868,7 +889,7 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
                     why = "line %d: command %s: %s, if it exists" % (line + 1, word, command)
                     if command in subcommands:
                         why = "line %d: command %s with no subcommand that can be read: the whole %s" % (line + 1, word, command)
-                    add((command, False), optional = True, why = why)
+                    add((command, False), optional = True, why = why, line = line)
                     continue
                 said = " ".join([word] + words)
                 for id, provider in _subcommand_imports(ctx, command, words, registered):
@@ -884,7 +905,7 @@ def _imports(ctx, file, prefixes, roots, path_dirs, is_test, seen = None, own = 
                         )
                     else:
                         why = "line %d: %s: %s without its subcommands, else the whole %s" % (line + 1, said, command, command)
-                    add((id, False), optional = True, why = why, provider = provider)
+                    add((id, False), optional = True, why = why, provider = provider, line = line)
 
     return imports
 

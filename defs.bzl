@@ -31,9 +31,10 @@ def _runner_impl(ctx):
             "@@PRUNE@@": _rlocationpath(ctx, ctx.file._prune),
             "@@SORT@@": _rlocationpath(ctx, ctx.file._sort),
             "@@TAGS@@": _rlocationpath(ctx, ctx.file._tags),
+            "@@ADVISE@@": _rlocationpath(ctx, ctx.file._advise),
         },
     )
-    files = [script, ctx.file._prune, ctx.file._sort, ctx.file._tags, ctx.file._packages] + ctx.files._runfiles_lib
+    files = [script, ctx.file._advise, ctx.file._prune, ctx.file._sort, ctx.file._tags, ctx.file._packages] + ctx.files._runfiles_lib
     runfiles = ctx.runfiles(files = files).merge_all([
         ctx.attr.runner[DefaultInfo].default_runfiles,
         ctx.attr._buildozer[DefaultInfo].default_runfiles,
@@ -46,6 +47,7 @@ _gazelle_bash_runner = rule(
     attrs = {
         "mode": attr.string(values = ["fix", "check"], mandatory = True),
         "runner": attr.label(executable = True, cfg = "target", mandatory = True),
+        "_advise": attr.label(default = "//wrapper:advise.sh", allow_single_file = True),
         "_buildozer": attr.label(default = "@buildozer", executable = True, cfg = "target"),
         "_packages": attr.label(default = "//wrapper:packages.sh", allow_single_file = True),
         "_prune": attr.label(default = "//wrapper:prune_stale.sh", allow_single_file = True),

@@ -1,1 +1,1 @@
-Import "nope.sh" (provider "shell") from "a.sh" is an unknown dependency
+Import "nope.sh" (provider "shell") from "a.sh:1" is an unknown dependency

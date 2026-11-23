@@ -37,6 +37,18 @@ sh_library(
 )
 
 sh_library(
+    name = "sc-bash_bin",
+    srcs = ["sc-bash"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
+    name = "sc-later_bin",
+    srcs = ["sc-later"],
+    visibility = ["//:__subpackages__"],
+)
+
+sh_library(
     name = "shim_bin",
     srcs = ["shim"],
     visibility = ["//:__subpackages__"],
