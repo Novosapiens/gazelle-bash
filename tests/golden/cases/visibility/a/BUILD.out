@@ -9,6 +9,12 @@ sh_library(
     visibility = ["//a:__pkg__"],
 )
 
+sh_library(
+    name = "pinned",
+    srcs = ["pinned.sh"],
+    visibility = ["//pinned:__pkg__"],  # keep
+)
+
 sh_test(
     name = "new_test",
     srcs = ["new_test.sh"],
@@ -25,10 +31,4 @@ sh_library(
     name = "old",
     srcs = ["old.sh"],
     visibility = ["//a:__pkg__"],
-)
-
-sh_library(
-    name = "pinned",
-    srcs = ["pinned.sh"],
-    visibility = ["//pinned:__pkg__"],  # keep
 )
