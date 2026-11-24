@@ -2,7 +2,7 @@
 # ok = generation succeeds and Bazel can analyse every generated target.
 # fail:<text> = generation stops, and its output contains <text>. Each of these needs a
 # setting or a comment in that project; see README.md in this folder.
-Bash-it/bash-it|72ea9e285fe1828977d1cd2bc596b901bcc57440|fail:Import "vendor/github.com/dsifford/yarn-completion/yarn"
+Bash-it/bash-it|72ea9e285fe1828977d1cd2bc596b901bcc57440|fail:Import "vendor/github.com/gaelicWizard/test_helper.bash"
 acmesh-official/acme.sh|1a407f07d5ba1af75aac2cff754df5c268408110|ok
 asdf-vm/asdf-nodejs|779c8dc84b3bdab38c2c80622d315c2c3267f74b|ok
 awslabs/git-secrets|7d6b970cbd3c216353cb22b383b70c150140662e|ok

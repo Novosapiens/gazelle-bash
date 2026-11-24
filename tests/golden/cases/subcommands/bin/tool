@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# rbenv-style: each subcommand is libexec/tool-<name>.
+source "$(dirname "$0")/../lib/common.sh"
+# gazelle-bash: dep ../libexec/
+exec "$(dirname "$0")/../libexec/tool-$1" "${@:2}"

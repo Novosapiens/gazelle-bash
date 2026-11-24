@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Runs prune_stale.sh, then the aspect_gazelle runner it wraps, then bats_tags.sh and
-# sort_rules.sh. A template: gazelle_bash() in //:defs.bzl fills in the @@...@@ values.
+# Runs prune_stale.sh, then the aspect_gazelle runner it wraps, then advise.sh on what the
+# runner printed, then bats_tags.sh and sort_rules.sh. A template: gazelle_bash() in //:defs.bzl fills in the @@...@@ values.
 #
 #   bazel run //:gazelle [-- gazelle args...]
 #
@@ -29,6 +29,7 @@ runner="$(rlocation "@@RUNNER@@")"
 prune="$(rlocation "@@PRUNE@@")"
 sort_rules="$(rlocation "@@SORT@@")"
 bats_tags="$(rlocation "@@TAGS@@")"
+advise="$(rlocation "@@ADVISE@@")"
 
 # Arguments that name a directory limit the other steps, as they limit Gazelle.
 dirs=()
@@ -53,10 +54,15 @@ if [[ $pruned -ne 0 && "$mode" == "fix" ]]; then
     exit $pruned
 fi
 
-# Gazelle runs from this script's runfiles directory, where the extensions' paths point.
+# Gazelle runs from this script's runfiles directory, where the extensions' paths point. Its
+# stdout and stderr are copied, each to its own stream and file, for advise.sh. The pipes keep
+# both copies whole by the time the runner's exit code is read, in bash 3.2 too.
+logs="$(mktemp -d)"
+trap 'rm -rf "$logs"' EXIT
 set +e
-"$runner" "$@"
-generated=$?
+{ { "$runner" "$@"; echo $? > "$logs/code"; } 2>&1 1>&3 3>&- | tee "$logs/err" >&2 3>&-; } 3>&1 | tee "$logs/out"
+generated="$(cat "$logs/code" 2>/dev/null || echo 1)"
+(cd "$BUILD_WORKSPACE_DIRECTORY" && "$advise" "$logs/out" "$logs/err")
 set -e
 if [[ $generated -ne 0 && "$mode" == "fix" ]]; then
     exit $generated

@@ -1,0 +1,2 @@
+gazelle-bash: explain tests/tool.bats: line 2: tool sync: the file that runs subcommand sync of bin/tool, else the whole bin/tool
+gazelle-bash: explain tests/tool.bats: line 2: tool sync: bin/tool without its subcommands, else the whole bin/tool
