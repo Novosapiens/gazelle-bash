@@ -662,6 +662,16 @@ def _glob_match(pattern, p):
         states = after
     return len(segments) in states
 
+def _visibility(ctx):
+    """The visibility of the libraries and filegroups this package gets: the labels of Gazelle's own
+    `# gazelle:default_visibility`, else the whole repo. As in Gazelle, a directive in a package
+    below replaces the one above, and its labels are split on commas."""
+    labels = _list(ctx.properties["default_visibility"])
+    for label in labels:
+        if not (label.startswith("//") or label.startswith("@") or label.startswith(":")):
+            fail("gazelle-bash: default_visibility entries must be labels, such as //tests:__pkg__, got: " + label)
+    return labels or ["//:__subpackages__"]
+
 # --- Stages ------------------------------------------------------------------
 
 # The convenience symlinks Bazel creates at the workspace root.
@@ -935,6 +945,7 @@ def _declare(ctx):
 
     prefixes = _dir_prefixes(ctx.properties["bash_dir_vars"])
     roots = _root_vars(ctx.properties["bash_root_vars"])
+    vis = _visibility(ctx)
     path_dirs = []
     for d in _list(ctx.properties["bash_path_dirs"]):
         cleaned = _clean(d)
@@ -992,7 +1003,7 @@ def _declare(ctx):
             kind = "filegroup",
             attrs = {
                 "srcs": [p],
-                "visibility": ["//:__subpackages__"],
+                "visibility": vis,
             },
             symbols = _symbols(_join(ctx.rel, p)),
         )
@@ -1007,7 +1018,7 @@ def _declare(ctx):
             "data": data,
         }
         if kind != "sh_test":
-            attrs["visibility"] = ["//:__subpackages__"]
+            attrs["visibility"] = vis
 
         symbols = _symbols(ws_path, tree = kind != "sh_test")
         if kind != "sh_test":
@@ -1038,7 +1049,7 @@ def _declare(ctx):
                 attrs = {
                     "srcs": [file.path],
                     "data": [imp for imp in data if not _is_subcommand_dep(imp, pattern)],
-                    "visibility": ["//:__subpackages__"],
+                    "visibility": vis,
                 },
                 symbols = [aspect.Symbol(id = ws_path, provider = _DISPATCHER)],
             )
@@ -1071,6 +1082,7 @@ def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs,
     The library is named after the directory (`root` at the workspace root), the filegroup
     `<name>_files`. A test whose name would clash with either folds its extension in.
     """
+    vis = _visibility(ctx)
     tests = [f for f in scripts if f.path.endswith("_test.sh")] + bats
     libs = sorted([f for f in scripts if not f.path.endswith("_test.sh")], key = lambda f: f.path)
 
@@ -1117,7 +1129,7 @@ def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs,
             kind = "filegroup",
             attrs = {
                 "srcs": data_files,
-                "visibility": ["//:__subpackages__"],
+                "visibility": vis,
             },
             symbols = _package_symbols(ctx, data_files),
         )
@@ -1143,7 +1155,7 @@ def _declare_package(ctx, scripts, bats, data_files, prefixes, roots, path_dirs,
             attrs = {
                 "srcs": [f.path for f in libs],
                 "data": data,
-                "visibility": ["//:__subpackages__"],
+                "visibility": vis,
             },
             symbols = symbols,
         )
@@ -1186,6 +1198,11 @@ aspect.orion_extension(
         # match gets a filegroup of its own, eg
         #   # gazelle:bash_data_files docs/**,*.md,tests/fixtures/**
         "bash_data_files": aspect.Property(type = "[]string", default = []),
+        # Gazelle's own directive, read here too: who may depend on the libraries and filegroups
+        # this extension creates, as labels. Unset, they are visible to the whole repo, eg
+        #   # gazelle:default_visibility //tests:__subpackages__,//tools:__pkg__
+        # A rule that already exists keeps its visibility, as with Gazelle's Go rules.
+        "default_visibility": aspect.Property(type = "[]string", default = []),
         # Dispatchers whose subcommands are files of their own, as dispatcher=pattern from the
         # workspace root. `{}` stands for the subcommand, its words joined by `-`. A test that
         # runs `tool sync` depends on the dispatcher without its subcommands and on the file

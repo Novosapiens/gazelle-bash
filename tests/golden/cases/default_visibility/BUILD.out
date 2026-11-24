@@ -1,0 +1,2 @@
+# gazelle:default_visibility //tests:__pkg__,//ci:__subpackages__
+# gazelle:bash_data_files a/notes.txt

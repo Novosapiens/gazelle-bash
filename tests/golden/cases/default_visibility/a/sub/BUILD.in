@@ -1,0 +1,2 @@
+# gazelle:default_visibility //other:__pkg__
+# gazelle:default_visibility //more:__pkg__

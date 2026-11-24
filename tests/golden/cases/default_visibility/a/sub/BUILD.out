@@ -1,0 +1,13 @@
+load("@rules_shell//shell:sh_library.bzl", "sh_library")
+
+# gazelle:default_visibility //other:__pkg__
+# gazelle:default_visibility //more:__pkg__
+
+sh_library(
+    name = "z",
+    srcs = ["z.sh"],
+    visibility = [
+        "//more:__pkg__",
+        "//other:__pkg__",
+    ],
+)

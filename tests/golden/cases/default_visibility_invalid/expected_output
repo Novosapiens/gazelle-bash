@@ -1,0 +1,1 @@
+default_visibility entries must be labels, such as //tests:__pkg__, got: tests

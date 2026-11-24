@@ -77,6 +77,28 @@ but not their runfiles, and only `sh_library` passes on the files of what it dep
 To `bazel run` a script, write an `sh_binary` for it by hand.
 
 Libraries and filegroups are visible to `//:__subpackages__`, so any script in the repo can use them.
+Tests get no visibility: nothing depends on a test.
+
+### Visibility
+
+To let only some packages depend on what gazelle-bash creates, use Gazelle's own directive:
+
+```starlark
+# gazelle:default_visibility //tests:__subpackages__,//tools:__pkg__
+```
+
+- It follows Gazelle's rules: the labels are split on commas, several directives in one BUILD file add
+  up, and a directive in a package below replaces the one above.
+- Each library and filegroup that gazelle-bash creates there gets those labels as its `visibility`. They're
+  written on the rule itself, so they're right on the first run, with no other Gazelle language turned on.
+- A rule that already exists keeps its `visibility`, as Gazelle's Go rules do, so a visibility set by hand
+  stays. To apply the directive to the existing rules of a package, remove their `visibility` and run
+  Gazelle again: `bazel run @buildozer -- 'remove visibility' //tools/...:%sh_library //tools/...:%filegroup`.
+- An entry that isn't a label, such as `tests`, stops generation.
+
+Gazelle's own `visibility_extension` language, turned on with `gazelle_bash(languages =
+["visibility_extension"])`, also writes the directive's `package(default_visibility = ...)`. It's not needed
+for gazelle-bash's targets, and it skips a BUILD file that's created in the same run.
 
 Target names:
 
@@ -566,6 +588,7 @@ Set these as directives in a BUILD file. Subpackages inherit them.
 | `# gazelle:bash_root_vars APP_ROOT=plugin,REPO=.` | none | Variables that hold a fixed directory, as `NAME=path` from the workspace root (`.` is the root) |
 | `# gazelle:bash_path_dirs plugin/bin,tests/helpers` | none | Directories that tests put on `PATH`. A test depends on the commands it runs by bare name from them |
 | `# gazelle:bash_data_files docs/**,*.md` | none | Non-script files tests may depend on, as globs from the workspace root. Each match gets a filegroup |
+| `# gazelle:default_visibility //tests:__subpackages__` | `//:__subpackages__` | Gazelle's own directive: the `visibility` of the libraries and filegroups gazelle-bash creates. A directive below replaces the one above. See "Visibility" |
 | `# gazelle:bash_subcommands bin/tool=libexec/tool-{}` | none | Dispatchers whose subcommands are files of their own, as `dispatcher=pattern` from the workspace root. A test depends on the subcommand it runs, not on all of them. See "Subcommands of a dispatcher" |
 | `# gazelle:bash_explain tests/sync.bats` | none | Files, from the workspace root, that print why they get each dependency |
 | `# gazelle:bash_shellcheck_relative_to script` | `workspace` | What a `shellcheck source=` path is relative to |
